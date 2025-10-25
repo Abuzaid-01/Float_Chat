@@ -530,10 +530,20 @@ CRITICAL SQL GENERATION RULES:
    - Geographic: ORDER BY latitude, longitude
 
 10. OUTPUT FORMAT:
-    - Return ONLY valid PostgreSQL SQL
-    - No markdown, no explanations
-    - End with semicolon
+    - Return ONLY ONE valid PostgreSQL SQL statement
+    - No markdown code blocks (no ```)
+    - No explanations or comments before or after
+    - No multiple statements (only ONE query)
+    - **NO CTEs (WITH clauses) - use simple SELECT only**
+    - **NO subqueries in FROM clause - use simple direct queries**
+    - End with single semicolon
     - Use proper indentation
+
+11. QUERY SIMPLIFICATION:
+    - For lat/lon ranges: Use WHERE clause directly, not subqueries
+    - For sample data + stats: Just SELECT the columns needed
+    - Return raw data, let application calculate statistics
+    - Avoid complex nested queries
 
 EXAMPLE QUERIES:
 
@@ -588,7 +598,7 @@ WHERE pressure > 1000
 ORDER BY pressure DESC
 LIMIT 1000;
 
-NOW GENERATE THE OPTIMIZED SQL QUERY:"""
+RESPOND WITH ONLY THE SQL QUERY (ONE STATEMENT, NO EXPLANATIONS):"""
 
         return PromptTemplate(
             input_variables=[
@@ -758,8 +768,39 @@ NOW GENERATE THE OPTIMIZED SQL QUERY:"""
         sql = re.sub(r'```sql\s*', '', sql, flags=re.IGNORECASE)
         sql = re.sub(r'```\s*', '', sql)
         
-        # Remove comments (but keep SQL)
+        # Remove any explanatory text before SQL
+        lines = sql.split('\n')
+        sql_lines = []
+        in_sql = False
+        
+        for line in lines:
+            line_upper = line.strip().upper()
+            if line_upper.startswith('SELECT') or line_upper.startswith('WITH'):
+                in_sql = True
+            if in_sql:
+                sql_lines.append(line)
+        
+        if sql_lines:
+            sql = '\n'.join(sql_lines)
+        
+        # If there's a WITH clause (CTE), extract only the final SELECT
+        # For this application, we want simple queries only
+        if 'WITH' in sql.upper() or ' AS (' in sql.upper():
+            # Try to extract just the main SELECT after the CTE
+            # Better: reject CTEs and ask for simple query
+            select_matches = list(re.finditer(r'\bSELECT\b', sql, re.IGNORECASE))
+            if len(select_matches) > 1:
+                # Multiple SELECTs found, take the last one (main query)
+                last_select_pos = select_matches[-1].start()
+                sql = sql[last_select_pos:]
+        
+        # Remove comments
         sql = re.sub(r'--.*$', '', sql, flags=re.MULTILINE)
+        
+        # If multiple statements (separated by ;), keep only first
+        statements = [s.strip() for s in sql.split(';') if s.strip() and 'SELECT' in s.upper()]
+        if statements:
+            sql = statements[0]
         
         # Normalize whitespace
         sql = ' '.join(sql.split())

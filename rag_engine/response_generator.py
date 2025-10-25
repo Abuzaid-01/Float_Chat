@@ -116,50 +116,61 @@ class ResponseGenerator:
         
         return "\n".join(response_parts)
     
-    def _format_results(self, df: pd.DataFrame, max_rows: int = 5) -> str:
-        """Format DataFrame results for Gemini - OPTIMIZED to prevent timeouts"""
+    def _format_results(self, df: pd.DataFrame, max_rows: int = 10) -> str:
+        """Format DataFrame results for Gemini - includes actual data rows"""
         if df.empty:
             return "No data found matching the query."
         
         summary_parts = [
-            f"📊 Query Results: {len(df)} records retrieved",
-            f"Columns: {', '.join(df.columns)}",
+            f"📊 ACTUAL Query Results: {len(df)} records retrieved from database",
+            f"Available Columns: {', '.join(df.columns)}",
             ""
         ]
         
         # Add geographic info if available
         if 'latitude' in df.columns and 'longitude' in df.columns:
-            summary_parts.append(f"Geographic Coverage:")
-            summary_parts.append(f"  • Latitude: {df['latitude'].min():.2f}°N to {df['latitude'].max():.2f}°N")
-            summary_parts.append(f"  • Longitude: {df['longitude'].min():.2f}°E to {df['longitude'].max():.2f}°E")
+            summary_parts.append(f"Geographic Coverage (Latitude/Longitude Ranges):")
+            summary_parts.append(f"  • Latitude: MIN={df['latitude'].min():.4f}°N, MAX={df['latitude'].max():.4f}°N")
+            summary_parts.append(f"  • Longitude: MIN={df['longitude'].min():.4f}°E, MAX={df['longitude'].max():.4f}°E")
             summary_parts.append("")
         
-        # Add numeric statistics (CONDENSED)
-        summary_parts.append("Key Statistics:")
+        # Add numeric statistics (COMPREHENSIVE)
+        summary_parts.append("Statistical Summary:")
         numeric_cols = df.select_dtypes(include=['float64', 'int64']).columns
-        for col in numeric_cols[:5]:  # Limit to 5 columns to prevent timeout
+        for col in numeric_cols:
             if col in df.columns and df[col].notna().sum() > 0:
                 summary_parts.append(
-                    f"  • {col}: {df[col].min():.2f} to {df[col].max():.2f} "
-                    f"(avg: {df[col].mean():.2f})"
+                    f"  • {col}: MIN={df[col].min():.4f}, MAX={df[col].max():.4f}, "
+                    f"AVG={df[col].mean():.4f}"
                 )
         
         # Add float/profile info if available
         if 'float_id' in df.columns:
             unique_floats = df['float_id'].nunique()
-            summary_parts.append(f"\n  • Unique floats: {unique_floats}")
+            summary_parts.append(f"\n  • Total unique floats: {unique_floats}")
         
-        # Add ONLY 3 sample rows (not 10) to minimize token usage
-        summary_parts.append(f"\nSample Data (first {min(max_rows, len(df))} of {len(df)} records):")
+        summary_parts.append("")
         
-        # Format sample data compactly
+        # Add ACTUAL DATA ROWS (10 rows by default)
+        summary_parts.append(f"SAMPLE DATA ROWS (showing {min(max_rows, len(df))} of {len(df)} total records):")
+        summary_parts.append("=" * 80)
+        
+        # Format sample data with all columns
         sample_df = df.head(max_rows)
         for idx, row in sample_df.iterrows():
-            row_str = " | ".join([f"{col}: {row[col]}" for col in df.columns[:6]])  # Max 6 columns
-            summary_parts.append(f"  {row_str}")
+            summary_parts.append(f"\nRow {idx + 1}:")
+            for col in df.columns:
+                value = row[col]
+                if pd.isna(value):
+                    value = "NULL"
+                elif isinstance(value, float):
+                    value = f"{value:.4f}"
+                summary_parts.append(f"  - {col}: {value}")
+        
+        summary_parts.append("=" * 80)
         
         if len(df) > max_rows:
-            summary_parts.append(f"  ... and {len(df) - max_rows} more records")
+            summary_parts.append(f"\n(Note: Showing {max_rows} sample rows out of {len(df)} total records)")
         
         return "\n".join(summary_parts)
     

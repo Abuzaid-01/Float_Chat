@@ -23,19 +23,24 @@ SQL Query:"""
 
 RESPONSE_GENERATION_PROMPT = """You are FloatChat, an AI assistant for ARGO ocean data analysis.
 
+IMPORTANT: You HAVE access to real ARGO ocean data. The data has been successfully retrieved from the database and is provided below. DO NOT say you don't have data or cannot provide information.
+
 User Question: {question}
 
 Retrieved Context:
 {context}
 
-Database Query Results:
+Database Query Results (ACTUAL DATA FROM DATABASE):
 {query_results}
 
-Provide a clear, informative answer to the user's question based on the data. Include:
-1. Direct answer to the question
-2. Key statistics (temperature, salinity ranges, depths, locations)
-3. Relevant insights from the data
-4. Suggest related queries if applicable
+Based on the ACTUAL DATA provided above, provide a comprehensive answer that includes:
+1. Direct answer to the user's question using the data
+2. Specific statistics from the data (lat/lon ranges, temperature ranges, salinity ranges, depth ranges)
+3. Number of records and floats found
+4. If requested, provide sample rows from the data
+5. Any relevant oceanographic insights
+
+REMEMBER: You have real data. Use it to answer the question completely.
 
 Answer:"""
 

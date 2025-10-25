@@ -25,6 +25,11 @@ class AdvancedVizPanel:
         
         st.subheader("🔬 Advanced Oceanographic Visualizations")
         
+        # Show available columns for debugging
+        with st.expander("📋 Available Data Columns"):
+            st.write(f"Columns in data: {', '.join(df.columns.tolist())}")
+            st.write(f"Total records: {len(df)}")
+        
         # Visualization selector
         viz_type = st.selectbox(
             "Select Visualization Type",
@@ -45,79 +50,105 @@ class AdvancedVizPanel:
                            if col in ['temperature', 'salinity', 'pressure', 
                                      'dissolved_oxygen', 'chlorophyll', 'ph']]
         
-        if viz_type == "Section Plot":
-            parameter = st.selectbox("Parameter", available_params)
-            fig = self.plotter.create_section_plot(df, parameter)
-            st.plotly_chart(fig, use_container_width=True)
+        if not available_params:
+            st.warning("⚠️ No oceanographic parameters found in the data. Please run a query that includes temperature, salinity, or other measurements.")
+            return
         
-        elif viz_type == "Hovmöller Diagram":
-            if 'timestamp' in df.columns:
+        try:
+            if viz_type == "Section Plot":
                 parameter = st.selectbox("Parameter", available_params)
-                fig = self.plotter.create_hovmoller_diagram(df, parameter)
+                fig = self.plotter.create_section_plot(df, parameter)
                 st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.warning("Timestamp data required for Hovmöller diagram")
-        
-        elif viz_type == "T-S Density Plot":
-            if 'temperature' in df.columns and 'salinity' in df.columns:
-                fig = self.plotter.create_ts_density_plot(df)
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.warning("Temperature and salinity data required")
-        
-        elif viz_type == "Property-Property Plot":
-            col1, col2 = st.columns(2)
-            with col1:
-                param1 = st.selectbox("X-axis Parameter", available_params, key='pp_x')
-            with col2:
-                param2 = st.selectbox("Y-axis Parameter", available_params, key='pp_y')
             
-            if param1 != param2:
-                fig = self.plotter.create_property_property_plot(df, param1, param2)
-                st.plotly_chart(fig, use_container_width=True)
-        
-        elif viz_type == "Multi-Profile Comparison":
-            selected_params = st.multiselect(
-                "Select Parameters",
-                available_params,
-                default=available_params[:2]
-            )
+            elif viz_type == "Hovmöller Diagram":
+                if 'timestamp' in df.columns:
+                    parameter = st.selectbox("Parameter", available_params)
+                    fig = self.plotter.create_hovmoller_diagram(df, parameter)
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.warning("⏰ Timestamp data required for Hovmöller diagram. This visualization needs time-series data.")
             
-            if selected_params:
-                group_by = st.selectbox(
-                    "Group By",
-                    [col for col in ['float_id', 'timestamp', 'cycle_number'] if col in df.columns]
+            elif viz_type == "T-S Density Plot":
+                if 'temperature' in df.columns and 'salinity' in df.columns:
+                    fig = self.plotter.create_ts_density_plot(df)
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.warning("🌡️ Temperature and salinity data required for T-S plot")
+            
+            elif viz_type == "Property-Property Plot":
+                col1, col2 = st.columns(2)
+                with col1:
+                    param1 = st.selectbox("X-axis Parameter", available_params, key='pp_x')
+                with col2:
+                    param2 = st.selectbox("Y-axis Parameter", available_params, key='pp_y')
+                
+                if param1 != param2:
+                    fig = self.plotter.create_property_property_plot(df, param1, param2)
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("Please select different parameters for X and Y axes")
+            
+            elif viz_type == "Multi-Profile Comparison":
+                selected_params = st.multiselect(
+                    "Select Parameters",
+                    available_params,
+                    default=available_params[:2] if len(available_params) >= 2 else available_params
                 )
-                fig = self.plotter.create_multi_profile_comparison(
-                    df, group_by, selected_params
-                )
-                st.plotly_chart(fig, use_container_width=True)
-        
-        elif viz_type == "Depth Histogram":
-            parameter = st.selectbox("Parameter", available_params)
-            bins = st.slider("Number of Depth Bins", 5, 50, 20)
-            fig = self.plotter.create_depth_histogram(df, parameter, bins)
-            st.plotly_chart(fig, use_container_width=True)
-        
-        elif viz_type == "Spatial Interpolation":
-            if 'latitude' in df.columns and 'longitude' in df.columns:
+                
+                if selected_params:
+                    # Check available grouping columns
+                    group_options = [col for col in ['float_id', 'timestamp', 'cycle_number'] if col in df.columns]
+                    if group_options:
+                        group_by = st.selectbox("Group By", group_options)
+                        fig = self.plotter.create_multi_profile_comparison(
+                            df, group_by, selected_params
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.warning("⚠️ No grouping columns available. Need at least one of: float_id, timestamp, or cycle_number")
+                else:
+                    st.info("Please select at least one parameter")
+            
+            elif viz_type == "Depth Histogram":
+                if not available_params:
+                    st.warning("⚠️ No parameters available for histogram")
+                else:
+                    parameter = st.selectbox("Parameter", available_params)
+                    bins = st.slider("Number of Depth Bins", 5, 50, 20)
+                    fig = self.plotter.create_depth_histogram(df, parameter, bins)
+                    st.plotly_chart(fig, use_container_width=True)
+            
+            elif viz_type == "Spatial Interpolation":
+                if 'latitude' in df.columns and 'longitude' in df.columns:
+                    parameter = st.selectbox("Parameter", available_params)
+                    if 'pressure' in df.columns:
+                        depth = st.slider(
+                            "Depth Level (dbar)",
+                            float(df['pressure'].min()),
+                            float(df['pressure'].max()),
+                            10.0
+                        )
+                        fig = self.plotter.create_spatial_interpolation(df, parameter, depth)
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.warning("⚠️ Pressure/depth data required for spatial interpolation")
+                else:
+                    st.warning("🗺️ Geographic coordinates (latitude/longitude) required for spatial interpolation")
+            
+            elif viz_type == "Anomaly Plot":
                 parameter = st.selectbox("Parameter", available_params)
-                depth = st.slider(
-                    "Depth Level (dbar)",
-                    float(df['pressure'].min()),
-                    float(df['pressure'].max()),
-                    10.0
-                )
-                fig = self.plotter.create_spatial_interpolation(df, parameter, depth)
+                baseline = st.radio("Baseline", ["mean", "median"])
+                fig = self.plotter.create_anomaly_plot(df, parameter, baseline)
                 st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.warning("Geographic coordinates required")
         
-        elif viz_type == "Anomaly Plot":
-            parameter = st.selectbox("Parameter", available_params)
-            baseline = st.radio("Baseline", ["mean", "median"])
-            fig = self.plotter.create_anomaly_plot(df, parameter, baseline)
-            st.plotly_chart(fig, use_container_width=True)
+        except KeyError as e:
+            st.error(f"❌ Missing required column: {e}")
+            st.info("💡 Try running a different query that includes more data columns.")
+        except Exception as e:
+            st.error(f"🔴 Visualization Error: {str(e)}")
+            st.info("💡 Please try a different visualization type or check your data.")
+            with st.expander("🔍 Error Details"):
+                st.code(str(e))
         
         # Add interpretation guide
         self._render_interpretation_guide(viz_type)

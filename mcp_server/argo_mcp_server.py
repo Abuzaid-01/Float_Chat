@@ -267,27 +267,40 @@ class ARGOMCPServer:
         """Handle ARGO data query"""
         import json
         from decimal import Decimal
+        import pandas as pd
+        import numpy as np
         
         result = self.query_processor.process_query(query)
         
         if result['success']:
             df = result['results'].head(limit)
             
-            # Convert DataFrame to dict, handling Decimal types
+            # Convert DataFrame to dict, handling Decimal and Timestamp types
             data_records = df.to_dict('records')
             
-            # Convert Decimal to float for JSON serialization
-            def convert_decimals(obj):
+            # Convert non-JSON-serializable types to JSON-compatible types
+            def convert_to_json_serializable(obj):
+                """Recursively convert objects to JSON-serializable types"""
                 if isinstance(obj, list):
-                    return [convert_decimals(item) for item in obj]
+                    return [convert_to_json_serializable(item) for item in obj]
                 elif isinstance(obj, dict):
-                    return {key: convert_decimals(value) for key, value in obj.items()}
+                    return {key: convert_to_json_serializable(value) for key, value in obj.items()}
                 elif isinstance(obj, Decimal):
                     return float(obj)
+                elif isinstance(obj, (pd.Timestamp, pd.DatetimeIndex)):
+                    return obj.isoformat()
+                elif isinstance(obj, np.integer):
+                    return int(obj)
+                elif isinstance(obj, np.floating):
+                    return float(obj)
+                elif isinstance(obj, np.ndarray):
+                    return obj.tolist()
+                elif pd.isna(obj):
+                    return None
                 else:
                     return obj
             
-            data_records = convert_decimals(data_records)
+            data_records = convert_to_json_serializable(data_records)
             
             return {
                 "success": True,

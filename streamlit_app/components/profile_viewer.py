@@ -77,12 +77,14 @@ class ProfileViewer:
                 
         else:  # Comparison
             if 'timestamp' in df.columns:
-                group_by = st.sidebar.selectbox(
-                    "Group By",
-                    ['timestamp', 'float_id', 'cycle_number']
-                )
+                # Only show available grouping columns
+                group_options = [col for col in ['timestamp', 'float_id', 'cycle_number'] if col in df.columns]
+                if group_options:
+                    group_by = st.sidebar.selectbox("Group By", group_options)
+                else:
+                    group_by = 'timestamp'  # fallback
             else:
-                group_by = 'float_id'
+                group_by = 'float_id' if 'float_id' in df.columns else list(df.columns)[0]
             
             fig = self.plotter.create_profile_comparison(
                 df,
@@ -117,5 +119,7 @@ class ProfileViewer:
                          f"{df['salinity'].min():.2f} - {df['salinity'].max():.2f} PSU")
         
         with col4:
-            if 'float_id' in df.columns:
+            if 'float_id' in df.columns and 'cycle_number' in df.columns:
                 st.metric("Unique Profiles", df.groupby(['float_id', 'cycle_number']).ngroups)
+            elif 'float_id' in df.columns:
+                st.metric("Unique Floats", df['float_id'].nunique())
