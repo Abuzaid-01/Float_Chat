@@ -100,6 +100,10 @@ class MapVisualizer:
         if df.empty:
             return self._create_empty_map(title)
         
+        # Check for required columns
+        if 'latitude' not in df.columns or 'longitude' not in df.columns:
+            return self._create_empty_map(title, "Geographic data (latitude/longitude) required for heatmap")
+        
         fig = go.Figure(go.Densitymapbox(
             lat=df['latitude'],
             lon=df['longitude'],
@@ -258,7 +262,7 @@ class MapVisualizer:
             hover_texts.append(text)
         return hover_texts
     
-    def _create_empty_map(self, title: str) -> go.Figure:
+    def _create_empty_map(self, title: str, message: str = "No data to display") -> go.Figure:
         """Create empty map with message"""
         fig = go.Figure(go.Scattermapbox())
         fig.update_layout(
@@ -268,7 +272,7 @@ class MapVisualizer:
             height=600,
             annotations=[
                 dict(
-                    text="No data to display",
+                    text=message,
                     showarrow=False,
                     xref="paper",
                     yref="paper",

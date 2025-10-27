@@ -25,6 +25,53 @@ class NetCDFExporter:
         self.cf_conventions = "CF-1.6"
         self.argo_format_version = "3.1"
     
+    # def export_to_netcdf(
+    #     self,
+    #     df: pd.DataFrame,
+    #     output_path: str,
+    #     metadata: Optional[Dict] = None
+    # ) -> bool:
+    #     """
+    #     Export DataFrame to NetCDF file
+        
+    #     Args:
+    #         df: DataFrame with ARGO data
+    #         output_path: Output file path
+    #         metadata: Additional metadata
+            
+    #     Returns:
+    #         True if successful
+    #     """
+    #     try:
+    #         logger.info(f"📦 Exporting {len(df)} records to NetCDF...")
+            
+    #         # Prepare output directory
+    #         output_path = Path(output_path)
+    #         output_path.parent.mkdir(parents=True, exist_ok=True)
+            
+    #         # Create NetCDF file
+    #         with nc.Dataset(output_path, 'w', format='NETCDF4') as ncfile:
+                
+    #             # Add global attributes
+    #             self._add_global_attributes(ncfile, df, metadata)
+                
+    #             # Create dimensions
+    #             self._create_dimensions(ncfile, df)
+                
+    #             # Create variables
+    #             self._create_variables(ncfile, df)
+                
+    #             # Write data
+    #             self._write_data(ncfile, df)
+            
+    #         file_size = output_path.stat().st_size / (1024 * 1024)
+    #         logger.info(f"✅ NetCDF export complete: {output_path} ({file_size:.2f} MB)")
+            
+    #         return True
+            
+    #     except Exception as e:
+    #         logger.error(f"❌ NetCDF export failed: {e}")
+    #         return False
     def export_to_netcdf(
         self,
         df: pd.DataFrame,
@@ -32,7 +79,8 @@ class NetCDFExporter:
         metadata: Optional[Dict] = None
     ) -> bool:
         """
-        Export DataFrame to NetCDF file
+        IMPROVED: Export DataFrame to NetCDF file with better error handling
+        and validation
         
         Args:
             df: DataFrame with ARGO data
@@ -43,36 +91,195 @@ class NetCDFExporter:
             True if successful
         """
         try:
-            logger.info(f"📦 Exporting {len(df)} records to NetCDF...")
+            logger.info(f"📦 Starting NetCDF export of {len(df)} records...")
             
-            # Prepare output directory
+            # STEP 1: Validate input data
+            validation_result = self._validate_input_data(df)
+            if not validation_result['valid']:
+                logger.error(f"❌ Data validation failed: {validation_result['errors']}")
+                return False
+            
+            # STEP 2: Prepare output directory
             output_path = Path(output_path)
             output_path.parent.mkdir(parents=True, exist_ok=True)
             
-            # Create NetCDF file
+            # STEP 3: Clean and prepare data
+            df_clean = self._prepare_data_for_export(df)
+            
+            # STEP 4: Create NetCDF file
+            logger.info(f"📝 Creating NetCDF file: {output_path}")
             with nc.Dataset(output_path, 'w', format='NETCDF4') as ncfile:
                 
                 # Add global attributes
-                self._add_global_attributes(ncfile, df, metadata)
+                self._add_global_attributes(ncfile, df_clean, metadata)
                 
                 # Create dimensions
-                self._create_dimensions(ncfile, df)
+                self._create_dimensions(ncfile, df_clean)
                 
                 # Create variables
-                self._create_variables(ncfile, df)
+                self._create_variables(ncfile, df_clean)
                 
                 # Write data
-                self._write_data(ncfile, df)
+                self._write_data(ncfile, df_clean)
+                
+                # Add quality control attributes
+                self._add_qc_attributes(ncfile)
+            
+            # STEP 5: Verify the created file
+            verification = self._verify_netcdf_file(output_path)
+            if not verification['valid']:
+                logger.error(f"❌ File verification failed: {verification['errors']}")
+                return False
             
             file_size = output_path.stat().st_size / (1024 * 1024)
-            logger.info(f"✅ NetCDF export complete: {output_path} ({file_size:.2f} MB)")
+            logger.info(f"✅ NetCDF export complete: {output_path.name} ({file_size:.2f} MB)")
+            logger.info(f"✅ Verification: {verification['message']}")
             
             return True
             
         except Exception as e:
             logger.error(f"❌ NetCDF export failed: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return False
     
+    def _validate_input_data(self, df: pd.DataFrame) -> Dict:
+        """Validate input DataFrame for NetCDF export"""
+        
+        errors = []
+        warnings = []
+        
+        # Check if DataFrame is empty
+        if df.empty:
+            errors.append("DataFrame is empty")
+            return {'valid': False, 'errors': errors, 'warnings': warnings}
+        
+        # Check required columns
+        required_cols = ['latitude', 'longitude', 'pressure']
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            errors.append(f"Missing required columns: {missing_cols}")
+        
+        # Check for recommended columns
+        recommended_cols = ['temperature', 'salinity', 'timestamp']
+        missing_recommended = [col for col in recommended_cols if col not in df.columns]
+        if missing_recommended:
+            warnings.append(f"Missing recommended columns: {missing_recommended}")
+        
+        # Check data ranges
+        if 'latitude' in df.columns:
+            if df['latitude'].min() < -90 or df['latitude'].max() > 90:
+                errors.append("Latitude values out of valid range (-90 to 90)")
+        
+        if 'longitude' in df.columns:
+            if df['longitude'].min() < -180 or df['longitude'].max() > 180:
+                errors.append("Longitude values out of valid range (-180 to 180)")
+        
+        if 'temperature' in df.columns:
+            if df['temperature'].min() < -5 or df['temperature'].max() > 40:
+                warnings.append("Temperature values outside typical ocean range")
+        
+        if 'salinity' in df.columns:
+            if df['salinity'].min() < 0 or df['salinity'].max() > 42:
+                warnings.append("Salinity values outside typical ocean range")
+        
+        # Check for NaN values
+        nan_counts = df.isnull().sum()
+        if nan_counts.any():
+            warnings.append(f"Columns with NaN values: {nan_counts[nan_counts > 0].to_dict()}")
+        
+        valid = len(errors) == 0
+        
+        return {
+            'valid': valid,
+            'errors': errors,
+            'warnings': warnings
+        }
+    
+    def _prepare_data_for_export(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Clean and prepare data for NetCDF export"""
+        
+        df_clean = df.copy()
+        
+        # Convert timestamp to datetime if needed
+        if 'timestamp' in df_clean.columns:
+            df_clean['timestamp'] = pd.to_datetime(df_clean['timestamp'], errors='coerce')
+        
+        # Clean float_id (remove byte string formatting if present)
+        if 'float_id' in df_clean.columns:
+            df_clean['float_id'] = df_clean['float_id'].astype(str).str.strip("b'\" ")
+        
+        # Fill NaN values with appropriate fill values
+        numeric_cols = df_clean.select_dtypes(include=[np.number]).columns
+        for col in numeric_cols:
+            df_clean[col] = df_clean[col].fillna(99999.0)
+        
+        # Sort by float, cycle, and pressure
+        sort_cols = []
+        if 'float_id' in df_clean.columns:
+            sort_cols.append('float_id')
+        if 'cycle_number' in df_clean.columns:
+            sort_cols.append('cycle_number')
+        if 'pressure' in df_clean.columns:
+            sort_cols.append('pressure')
+        
+        if sort_cols:
+            df_clean = df_clean.sort_values(sort_cols)
+        
+        logger.info(f"✅ Data prepared: {len(df_clean)} records cleaned and sorted")
+        
+        return df_clean
+    
+    def _add_qc_attributes(self, ncfile: nc.Dataset):
+        """Add quality control attributes to NetCDF file"""
+        
+        ncfile.quality_control_indicator = "ARGO QC flags: 1=good, 2=probably good, 3=questionable, 4=bad, 9=missing"
+        ncfile.quality_control_conventions = "ARGO quality control manual"
+        ncfile.quality_control_date = datetime.now().isoformat()
+    
+    def _verify_netcdf_file(self, file_path: Path) -> Dict:
+        """Verify the created NetCDF file"""
+        
+        try:
+            with nc.Dataset(file_path, 'r') as ncfile:
+                # Check dimensions
+                if 'N_PROF' not in ncfile.dimensions:
+                    return {
+                        'valid': False,
+                        'errors': ['Missing N_PROF dimension']
+                    }
+                
+                # Check required variables
+                required_vars = ['LATITUDE', 'LONGITUDE', 'PRES']
+                missing_vars = [v for v in required_vars if v not in ncfile.variables]
+                if missing_vars:
+                    return {
+                        'valid': False,
+                        'errors': [f'Missing required variables: {missing_vars}']
+                    }
+                
+                # Check CF compliance
+                if not hasattr(ncfile, 'Conventions'):
+                    return {
+                        'valid': False,
+                        'errors': ['Missing CF Conventions attribute']
+                    }
+                
+                # All checks passed
+                n_prof = ncfile.dimensions['N_PROF'].size
+                n_levels = ncfile.dimensions['N_LEVELS'].size if 'N_LEVELS' in ncfile.dimensions else 0
+                
+                return {
+                    'valid': True,
+                    'message': f'Valid ARGO NetCDF file: {n_prof} profiles, {n_levels} levels',
+                    'errors': []
+                }
+        
+        except Exception as e:
+            return {
+                'valid': False,
+                'errors': [f'Verification error: {str(e)}']
+            }
     def _add_global_attributes(
         self,
         ncfile: nc.Dataset,
@@ -339,6 +546,97 @@ class NetCDFExporter:
                 ncfile.variables['DATA_MODE'][prof_idx] = data_mode_val
         
         logger.info(f"   Data written: {prof_idx + 1} profiles")
+
+
+    def export_with_progress(
+        self,
+        df: pd.DataFrame,
+        output_path: str,
+        metadata: Optional[Dict] = None,
+        progress_callback=None
+    ) -> Dict:
+        """
+        Export with progress reporting for Streamlit
+        
+        Returns:
+            Dict with status, message, and file info
+        """
+        
+        result = {
+            'success': False,
+            'message': '',
+            'file_path': None,
+            'file_size_mb': 0,
+            'records_exported': 0
+        }
+        
+        try:
+            if progress_callback:
+                progress_callback(0.1, "Validating data...")
+            
+            # Validate
+            validation = self._validate_input_data(df)
+            if not validation['valid']:
+                result['message'] = f"Validation failed: {validation['errors']}"
+                return result
+            
+            if progress_callback:
+                progress_callback(0.3, "Preparing data...")
+            
+            # Prepare
+            df_clean = self._prepare_data_for_export(df)
+            
+            if progress_callback:
+                progress_callback(0.5, "Creating NetCDF file...")
+            
+            # Export
+            output_path = Path(output_path)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            with nc.Dataset(output_path, 'w', format='NETCDF4') as ncfile:
+                self._add_global_attributes(ncfile, df_clean, metadata)
+                
+                if progress_callback:
+                    progress_callback(0.6, "Writing dimensions...")
+                
+                self._create_dimensions(ncfile, df_clean)
+                
+                if progress_callback:
+                    progress_callback(0.7, "Writing variables...")
+                
+                self._create_variables(ncfile, df_clean)
+                
+                if progress_callback:
+                    progress_callback(0.8, "Writing data...")
+                
+                self._write_data(ncfile, df_clean)
+                self._add_qc_attributes(ncfile)
+            
+            if progress_callback:
+                progress_callback(0.9, "Verifying file...")
+            
+            # Verify
+            verification = self._verify_netcdf_file(output_path)
+            
+            if progress_callback:
+                progress_callback(1.0, "Complete!")
+            
+            if verification['valid']:
+                file_size = output_path.stat().st_size / (1024 * 1024)
+                result['success'] = True
+                result['message'] = f"Successfully exported {len(df_clean)} records"
+                result['file_path'] = str(output_path)
+                result['file_size_mb'] = file_size
+                result['records_exported'] = len(df_clean)
+            else:
+                result['message'] = f"Export succeeded but verification failed: {verification['errors']}"
+            
+            return result
+            
+        except Exception as e:
+            result['message'] = f"Export error: {str(e)}"
+            logger.error(f"Export with progress failed: {e}")
+            return result    
     
     def export_to_ascii(
         self,

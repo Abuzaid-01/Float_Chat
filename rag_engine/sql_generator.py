@@ -409,6 +409,10 @@ class EnhancedSQLGenerator:
             'keywords': ['region', 'area', 'location', 'near', 'between', 'arabian', 'bengal', 'ocean', 'sea'],
             'requires': ['latitude', 'longitude']
         },
+        'nearest': {
+        'keywords': ['nearest', 'closest', 'near', 'within', 'around', 'proximity', 'distance'],
+        'requires': ['spatial_query']
+    },
         'temporal': {
             'keywords': ['recent', 'last', 'month', 'year', 'date', 'period', 'time', 'historical', 'trend'],
             'requires': ['timestamp']
@@ -607,7 +611,6 @@ RESPOND WITH ONLY THE SQL QUERY (ONE STATEMENT, NO EXPLANATIONS):"""
             ],
             template=template
         )
-    
     def generate_sql(
         self,
         user_query: str,
@@ -616,14 +619,6 @@ RESPOND WITH ONLY THE SQL QUERY (ONE STATEMENT, NO EXPLANATIONS):"""
     ) -> Optional[str]:
         """
         Generate SQL with enhanced analysis and caching
-        
-        Args:
-            user_query: Natural language question
-            context: Retrieved context from vector store
-            force_regenerate: Skip cache and regenerate
-            
-        Returns:
-            PostgreSQL query string or None if generation fails
         """
         self.stats['total_queries'] += 1
         
@@ -638,6 +633,19 @@ RESPOND WITH ONLY THE SQL QUERY (ONE STATEMENT, NO EXPLANATIONS):"""
             # Analyze query intent
             analysis = self._analyze_query(user_query)
             
+            # ADD THIS: Check for spatial/nearest queries
+            if analysis['type'] == 'nearest' or any(kw in user_query.lower() for kw in ['nearest', 'closest', 'within']):
+                lat, lon = self._extract_coordinates_from_query(user_query)
+                if lat is not None and lon is not None:
+                    radius_km = self._extract_radius_from_query(user_query)
+                    sql_query = self._generate_spatial_query(lat, lon, radius_km)
+                    
+                    if self.validate_sql(sql_query):
+                        self.query_cache[cache_key] = sql_query
+                        logger.info(f"✅ Generated spatial SQL: {sql_query[:80]}...")
+                        return sql_query
+            
+            # ... rest of the method remains EXACTLY THE SAME
             # Format prompt with analysis
             formatted_prompt = self.prompt_template.format(
                 schema=self.COMPLETE_SCHEMA,
@@ -648,6 +656,49 @@ RESPOND WITH ONLY THE SQL QUERY (ONE STATEMENT, NO EXPLANATIONS):"""
                 parameters=', '.join(analysis['parameters']),
                 time_period=analysis['time_period']
             )
+            
+            # ... rest remains same
+    
+    # def generate_sql(
+    #     self,
+    #     user_query: str,
+    #     context: str = "",
+    #     force_regenerate: bool = False
+    # ) -> Optional[str]:
+    #     """
+    #     Generate SQL with enhanced analysis and caching
+        
+    #     Args:
+    #         user_query: Natural language question
+    #         context: Retrieved context from vector store
+    #         force_regenerate: Skip cache and regenerate
+            
+    #     Returns:
+    #         PostgreSQL query string or None if generation fails
+    #     """
+    #     self.stats['total_queries'] += 1
+        
+    #     # Check cache
+    #     cache_key = f"{user_query}:{context}"
+    #     if not force_regenerate and cache_key in self.query_cache:
+    #         self.stats['cache_hits'] += 1
+    #         logger.info("✅ Cache hit for query")
+    #         return self.query_cache[cache_key]
+        
+    #     try:
+    #         # Analyze query intent
+    #         analysis = self._analyze_query(user_query)
+            
+    #         # Format prompt with analysis
+    #         formatted_prompt = self.prompt_template.format(
+    #             schema=self.COMPLETE_SCHEMA,
+    #             user_query=user_query,
+    #             context=context or "No similar profiles found",
+    #             query_type=analysis['type'],
+    #             region=analysis['region'],
+    #             parameters=', '.join(analysis['parameters']),
+    #             time_period=analysis['time_period']
+    #         )
             
             # Generate SQL
             logger.info(f"🔧 Generating SQL for: {user_query[:50]}...")
@@ -761,6 +812,73 @@ RESPOND WITH ONLY THE SQL QUERY (ONE STATEMENT, NO EXPLANATIONS):"""
         analysis['complexity'] = complexity
         
         return analysis
+    def _extract_coordinates_from_query(self, query: str) -> tuple:
+        """Extract latitude and longitude from natural language query"""
+        import re
+        
+        # Pattern 1: "15°N, 75°E" or "15N 75E"
+        pattern1 = r'(\d+\.?\d*)[°]?\s*[NS],?\s*(\d+\.?\d*)[°]?\s*[EW]'
+        match = re.search(pattern1, query, re.IGNORECASE)
+        if match:
+            lat = float(match.group(1))
+            lon = float(match.group(2))
+            if 's' in query.lower():
+                lat = -lat
+            if 'w' in query.lower():
+                lon = -lon
+            return lat, lon
+        
+        # Pattern 2: "latitude 15 longitude 75"
+        pattern2 = r'lat(?:itude)?\s+(\d+\.?\d*)\s+lon(?:gitude)?\s+(\d+\.?\d*)'
+        match = re.search(pattern2, query, re.IGNORECASE)
+        if match:
+            return float(match.group(1)), float(match.group(2))
+        
+        # Pattern 3: Common locations (you can expand this)
+        locations = {
+            'mumbai': (19.0760, 72.8777),
+            'chennai': (13.0827, 80.2707),
+            'kochi': (9.9312, 76.2673),
+            'port blair': (11.6234, 92.7265),
+        }
+        
+        for location, coords in locations.items():
+            if location in query.lower():
+                return coords
+        
+        return None, None
+    
+    def _extract_radius_from_query(self, query: str) -> float:
+        """Extract search radius from query"""
+        import re
+        
+        # Pattern: "within 50km" or "50 km" or "100 kilometers"
+        pattern = r'(\d+\.?\d*)\s*(?:km|kilometers?|miles?)'
+        match = re.search(pattern, query, re.IGNORECASE)
+        
+        if match:
+            radius = float(match.group(1))
+            if 'mile' in query.lower():
+                radius = radius * 1.60934  # Convert miles to km
+            return radius
+        
+        # Default radius
+        return 50.0  # 50km default
+    
+
+
+
+
+
+
+
+
+
+
+    
+    
+    
+    
     
     def _clean_sql(self, sql: str) -> str:
         """Clean SQL from markdown and formatting"""
@@ -831,6 +949,48 @@ RESPOND WITH ONLY THE SQL QUERY (ONE STATEMENT, NO EXPLANATIONS):"""
             # This is PostgreSQL-specific optimization
             pass  # Could add query hints here
         
+        return sql
+    def _generate_spatial_query(
+        self, 
+        lat: float, 
+        lon: float, 
+        radius_km: float = 50.0
+    ) -> str:
+        """
+        Generate spatial query using Haversine formula
+        (Works without PostGIS extension)
+        """
+        
+        # Haversine formula for distance calculation
+        sql = f"""
+SELECT 
+    float_id,
+    latitude,
+    longitude,
+    timestamp,
+    temperature,
+    salinity,
+    pressure,
+    ROUND(
+        (6371 * acos(
+            cos(radians({lat})) * cos(radians(latitude)) * 
+            cos(radians(longitude) - radians({lon})) + 
+            sin(radians({lat})) * sin(radians(latitude))
+        ))::numeric, 2
+    ) AS distance_km
+FROM argo_profiles
+WHERE temp_qc IN (1, 2, 3)
+  AND sal_qc IN (1, 2, 3)
+  AND (
+    6371 * acos(
+        cos(radians({lat})) * cos(radians(latitude)) * 
+        cos(radians(longitude) - radians({lon})) + 
+        sin(radians({lat})) * sin(radians(latitude))
+    )
+  ) <= {radius_km}
+ORDER BY distance_km ASC
+LIMIT 1000;
+"""
         return sql
     
     def validate_sql(self, sql: str) -> bool:

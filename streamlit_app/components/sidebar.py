@@ -128,9 +128,10 @@ class Sidebar:
             <h4 style='color: #0066cc; margin-top: 1rem; margin-bottom: 0.5rem;'>✨ Key Features:</h4>
             <ul style='color: #000000; font-weight: 600; margin: 0; padding-left: 1.2rem;'>
                 <li>🤖 Natural language queries</li>
-                <li>🗺️ Interactive map visualizations</li>
+                <li>📍 Spatial search (nearest floats)</li>  <!-- NEW -->
+                <li>🗺️ Interactive Plotly + Leaflet maps</li>  <!-- UPDATED -->
                 <li>📊 Real-time data analysis</li>
-                <li>💾 Multi-format export (CSV, JSON)</li>
+                <li>💾 Multi-format export (CSV, JSON, NetCDF)</li>  <!-- UPDATED -->
                 <li>🌊 1.2M+ ocean measurements</li>
             </ul>
             

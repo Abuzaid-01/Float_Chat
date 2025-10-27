@@ -318,16 +318,16 @@ class MCPToolServer:
             "cycle_number": cycle_number or "all",
             "measurements": len(df),
             "location": {
-                "lat": float(df['latitude'].mean()),
-                "lon": float(df['longitude'].mean())
+                "lat": float(df['latitude'].mean()) if 'latitude' in df.columns else None,
+                "lon": float(df['longitude'].mean()) if 'longitude' in df.columns else None
             },
             "date_range": {
-                "start": df['timestamp'].min().isoformat(),
-                "end": df['timestamp'].max().isoformat()
+                "start": df['timestamp'].min().isoformat() if 'timestamp' in df.columns else None,
+                "end": df['timestamp'].max().isoformat() if 'timestamp' in df.columns else None
             },
             "temperature": {
-                "min": float(df['temperature'].min()),
-                "max": float(df['temperature'].max()),
+                "min": float(df['temperature'].min()) if 'temperature' in df.columns else None,
+                "max": float(df['temperature'].max()) if 'temperature' in df.columns else None,
                 "mean": float(df['temperature'].mean()),
                 "std": float(df['temperature'].std())
             },

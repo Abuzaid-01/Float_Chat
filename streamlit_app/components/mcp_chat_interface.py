@@ -110,14 +110,19 @@ class MCPChatInterface:
                         "data": data
                     })
                     
-                    # Store for other tabs
-                    if data is not None:
-                        st.session_state.last_query_results = {
-                            'success': True,
-                            'results': data,
-                            'mcp_enabled': True,
-                            'tools_used': result['tools_used']
-                        }
+                    # Store for other tabs (only if data has meaningful visualization columns)
+                    if data is not None and not data.empty:
+                        # Only store if data has actual profile/geographic data for visualization
+                        # Skip storing simple aggregates (count, avg, etc.) that can't be visualized
+                        has_viz_columns = any(col in data.columns for col in ['latitude', 'longitude', 'temperature', 'salinity', 'pressure'])
+                        
+                        if has_viz_columns:
+                            st.session_state.last_query_results = {
+                                'success': True,
+                                'results': data,
+                                'mcp_enabled': True,
+                                'tools_used': result['tools_used']
+                            }
                 else:
                     error_msg = f"❌ Error: {result.get('error', 'Unknown error')}"
                     st.error(error_msg)
@@ -140,6 +145,37 @@ class MCPChatInterface:
             with col2:
                 st.metric("Execution Time", f"{mcp_details['execution_time']:.2f}s")
                 st.metric("Tools Used", len(mcp_details['tools_used']))
+        
+        with st.expander("💡 MCP-Powered Query Examples", expanded=False):
+            st.markdown("""
+            **Basic Queries:**
+            - Show me temperature profiles in the Arabian Sea
+            - What is the database structure?
+            - Find recent data from October 2025
+            
+            **Spatial Queries (NEW!):**  <!-- NEW SECTION -->
+            - Find nearest floats to 15°N, 75°E
+            - Show floats within 50km of Mumbai
+            - What floats are closest to 10.5N 70.3E
+            - Find floats within 100 kilometers of Chennai
+            
+            **Advanced Analytics (MCP Tools):**
+            - Calculate thermocline characteristics for Bay of Bengal
+            - Identify water masses in the Indian Ocean
+            - Compare temperature between Arabian Sea and Bay of Bengal
+            - Analyze temporal trends in dissolved oxygen
+            - Calculate mixed layer depth for recent profiles
+            
+            **BGC Queries:**
+            - Show dissolved oxygen levels in Arabian Sea
+            - Get chlorophyll and pH data for coastal regions
+            
+            **Profile Analysis:**
+            - Analyze float 2902696 profile statistics
+            - Find profiles similar to warm tropical surface water
+            
+            **💡 MCP automatically selects the right tools for your question!**
+            """)
             
             # Show individual tool results with unique key
             if st.checkbox("Show detailed tool results", key=f"show_details_{message_id}"):

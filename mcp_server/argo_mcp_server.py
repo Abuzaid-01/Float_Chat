@@ -218,26 +218,22 @@ class ARGOMCPServer:
             handler=self._handle_temporal_trends
         )
         
-        # Tool 9: Get BGC Parameters
+        # Tool 9: BGC Parameters
         self.protocol.register_tool(
             name="get_bgc_parameters",
-            description="Retrieve Bio-Geo-Chemical (BGC) parameters including dissolved oxygen, chlorophyll, pH, and nutrients.",
+            description="Get biogeochemical parameters (dissolved oxygen, chlorophyll, pH) from ARGO BGC floats. NOTE: Current database contains only core ARGO data. BGC parameters (pH, dissolved_oxygen, chlorophyll) are available as columns but not populated with data yet.",
             input_schema={
                 "type": "object",
                 "properties": {
                     "parameters": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "BGC parameters to retrieve: dissolved_oxygen, chlorophyll, ph, nitrate"
-                    },
-                    "region": {
-                        "type": "string",
-                        "description": "Optional region filter"
+                        "description": "List of BGC parameters to retrieve (e.g., ['dissolved_oxygen', 'ph', 'chlorophyll'])"
                     }
                 },
                 "required": ["parameters"]
             },
-            handler=self._handle_get_bgc
+            handler=self._handle_get_bgc_parameters
         )
         
         # Tool 10: Calculate Mixed Layer Depth
@@ -403,12 +399,12 @@ class ARGOMCPServer:
             "cycle_number": cycle_number,
             "measurements": len(df),
             "location": {
-                "lat": float(df['latitude'].mean()),
-                "lon": float(df['longitude'].mean())
+                "lat": float(df['latitude'].mean()) if 'latitude' in df.columns and not df['latitude'].isna().all() else None,
+                "lon": float(df['longitude'].mean()) if 'longitude' in df.columns and not df['longitude'].isna().all() else None
             },
             "date_range": {
-                "start": df['timestamp'].min().isoformat() if 'timestamp' in df.columns else None,
-                "end": df['timestamp'].max().isoformat() if 'timestamp' in df.columns else None
+                "start": df['timestamp'].min().isoformat() if 'timestamp' in df.columns and not df['timestamp'].isna().all() else None,
+                "end": df['timestamp'].max().isoformat() if 'timestamp' in df.columns and not df['timestamp'].isna().all() else None
             },
             "temperature": {
                 "min": float(df['temperature'].min()),
@@ -528,7 +524,7 @@ class ARGOMCPServer:
         """Handle temporal trend analysis"""
         return self.analytics.trend_analysis(region, parameter, days)
     
-    def _handle_get_bgc(self, parameters: List[str], region: str = None) -> Dict:
+    def _handle_get_bgc_parameters(self, parameters: List[str], region: str = None) -> Dict:
         """Handle BGC parameter retrieval"""
         session = self.db_setup.get_session()
         
@@ -548,6 +544,22 @@ class ARGOMCPServer:
         query += " LIMIT 1000"
         
         df = pd.read_sql(text(query), session.bind)
+        
+        # Check if any BGC data exists at all
+        if df.empty:
+            # Check if columns exist but are empty
+            check_query = f"SELECT COUNT(*) as total FROM argo_profiles"
+            total_records = pd.read_sql(text(check_query), session.bind).iloc[0]['total']
+            
+            session.close()
+            return {
+                "success": False,
+                "error": f"No BGC data found. The database contains {total_records:,} ARGO records, but all BGC parameters ({', '.join(parameters)}) are NULL. Your data source contains only Core ARGO measurements (temperature, salinity, pressure). To analyze BGC parameters, you need to load data from BGC-ARGO floats.",
+                "bgc_data": [],
+                "record_count": 0,
+                "suggestion": "BGC-ARGO floats are specialized floats that measure biogeochemical parameters. They represent about 10% of the ARGO fleet. Check if your NetCDF data source includes BGC floats (look for 'B' files or BGC-specific data)."
+            }
+        
         session.close()
         
         return {

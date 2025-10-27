@@ -393,20 +393,34 @@ class ProductionFloatChatApp:
         # self._render_footer()
         
         # Main content area - Enhanced Tabs with MCP
-        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-            "💬 Intelligent Chat (MCP)",
-            "🗺️ Geographic Explorer",
-            "📊 Profile Analysis",
-            "🔬 Advanced Visualizations",
-            "📈 Data Analytics",
-            "📥 Export & Reports"
-        ])
+        # tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        #     "💬 Intelligent Chat (MCP)",
+        #     "🗺️ Geographic Explorer",
+        #     "📊 Profile Analysis",
+        #     "🔬 Advanced Visualizations",
+        #     "📈 Data Analytics",
+        #     "📥 Export & Reports"
+        # ])
+        # REPLACE WITH THIS:
+        tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    "💬 Intelligent Chat (MCP)",
+    "🗺️ Geographic Explorer (Plotly)",
+    "🗺️ Geographic Explorer (Leaflet)",  # NEW TAB
+    "📊 Profile Analysis",
+    "🔬 Advanced Visualizations",
+    "📈 Data Analytics",
+    "📥 Export & Reports"
+])
         
         with tab1:
             self._render_chat_tab()
         
         with tab2:
             self._render_map_tab()
+
+        with tab3:
+             
+             self._render_leaflet_map_tab()    
         
         with tab3:
             self._render_profile_tab()
@@ -644,6 +658,7 @@ class ProductionFloatChatApp:
                 st.info("🔍 No data to display. Run a query in the Chat tab first.")
         else:
             self._render_empty_state("map")
+
     
     def _render_geographic_summary(self, df: pd.DataFrame):
         """Show geographic coverage summary"""
@@ -711,6 +726,20 @@ class ProductionFloatChatApp:
                 st.info("🔍 No data to display. Run a query in the Chat tab first.")
         else:
             self._render_empty_state("profile")
+
+    def _render_leaflet_map_tab(self):
+        """Render Leaflet-based interactive map"""
+        st.subheader("🗺️ Interactive Leaflet Map")
+        
+        if st.session_state.get('last_query_results') is not None:
+            results = st.session_state.last_query_results
+            if results['success'] and not results['results'].empty:
+                from streamlit_app.components.leaflet_map import render_leaflet_map_tab
+                render_leaflet_map_tab(results['results'])
+            else:
+                st.info("🔍 No data to display. Run a query in the Chat tab first.")
+        else:
+            self._render_empty_state("Leaflet map")        
     
     def _render_profile_statistics(self, df: pd.DataFrame):
         """Show profile statistics"""
@@ -938,12 +967,79 @@ class ProductionFloatChatApp:
                         )
                         st.caption(f"JSON format • {len(json_data)} bytes")
                 
+                # with export_tab2:
+                #     st.markdown("#### NetCDF Format (CF-Compliant)")
+                #     st.info("📦 NetCDF export creates ARGO-compliant files with full metadata")
+                
+                #     # NetCDF export options
+                #     include_bgc = st.checkbox("Include BGC parameters", value=True)
+                #     add_metadata = st.checkbox("Add custom metadata", value=False)
+                
+                #     custom_metadata = {}
+                #     if add_metadata:
+                #         custom_metadata['author'] = st.text_input("Author", "FloatChat User")
+                #         custom_metadata['project'] = st.text_input("Project", "Smart India Hackathon 2025")
+                #         custom_metadata['purpose'] = st.text_area("Purpose", "ARGO data analysis")
+                
+                #     if st.button("🌊 Generate NetCDF File", use_container_width=True):
+                #         with st.spinner("Creating NetCDF file..."):
+                #             try:
+                #                 from data_processing.netcdf_exporter import NetCDFExporter
+                #                 from io import BytesIO
+                #                 import tempfile
+                            
+                #                 # Create temporary file
+                #                 with tempfile.NamedTemporaryFile(suffix='.nc', delete=False) as tmp:
+                #                     exporter = NetCDFExporter()
+                #                     success = exporter.export_to_netcdf(
+                #                         df, 
+                #                         tmp.name,
+                #                         metadata=custom_metadata if custom_metadata else None
+                #                     )
+                                
+                #                     if success:
+                #                         # Read file for download
+                #                         with open(tmp.name, 'rb') as f:
+                #                             netcdf_data = f.read()
+                                    
+                #                         st.download_button(
+                #                             label="📥 Download NetCDF File",
+                #                             data=netcdf_data,
+                #                             file_name=f"argo_profiles_{datetime.now().strftime('%Y%m%d_%H%M%S')}.nc",
+                #                             mime="application/x-netcdf",
+                #                             use_container_width=True
+                #                         )
+                                    
+                #                         st.success(f"✅ NetCDF file created successfully ({len(netcdf_data) / 1024:.2f} KB)")
+                                    
+                #                         # Show validation
+                #                         validation = exporter.validate_netcdf(tmp.name)
+                #                         with st.expander("📋 File Validation"):
+                #                             st.json(validation)
+                #                     else:
+                #                         st.error("❌ NetCDF export failed")
+                            
+                #                 # Cleanup
+                #                 import os
+                #                 os.unlink(tmp.name)
+                            
+                #             except Exception as e:
+                #                 st.error(f"❌ Error creating NetCDF: {e}")
+                #                 import traceback
+                #                 st.code(traceback.format_exc())
                 with export_tab2:
                     st.markdown("#### NetCDF Format (CF-Compliant)")
-                    st.info("📦 NetCDF export creates ARGO-compliant files with full metadata")
+                    st.info("📦 NetCDF export creates ARGO-compliant files with full metadata and validation")
                 
                     # NetCDF export options
-                    include_bgc = st.checkbox("Include BGC parameters", value=True)
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        include_bgc = st.checkbox("Include BGC parameters", value=True)
+                    
+                    with col2:
+                        validate_output = st.checkbox("Validate output file", value=True)
+                    
                     add_metadata = st.checkbox("Add custom metadata", value=False)
                 
                     custom_metadata = {}
@@ -953,50 +1049,76 @@ class ProductionFloatChatApp:
                         custom_metadata['purpose'] = st.text_area("Purpose", "ARGO data analysis")
                 
                     if st.button("🌊 Generate NetCDF File", use_container_width=True):
-                        with st.spinner("Creating NetCDF file..."):
-                            try:
-                                from data_processing.netcdf_exporter import NetCDFExporter
-                                from io import BytesIO
-                                import tempfile
+                        # Create progress bar
+                        progress_bar = st.progress(0)
+                        status_text = st.empty()
+                        
+                        def update_progress(value, message):
+                            progress_bar.progress(value)
+                            status_text.info(f"⏳ {message}")
+                        
+                        try:
+                            from data_processing.netcdf_exporter import NetCDFExporter
+                            import tempfile
+                            import os
+                        
+                            # Create temporary file
+                            with tempfile.NamedTemporaryFile(suffix='.nc', delete=False) as tmp:
+                                tmp_path = tmp.name
                             
-                                # Create temporary file
-                                with tempfile.NamedTemporaryFile(suffix='.nc', delete=False) as tmp:
-                                    exporter = NetCDFExporter()
-                                    success = exporter.export_to_netcdf(
-                                        df, 
-                                        tmp.name,
-                                        metadata=custom_metadata if custom_metadata else None
-                                    )
+                            exporter = NetCDFExporter()
+                            
+                            # Export with progress
+                            result = exporter.export_with_progress(
+                                df,
+                                tmp_path,
+                                metadata=custom_metadata if custom_metadata else None,
+                                progress_callback=update_progress
+                            )
+                            
+                            if result['success']:
+                                # Read file for download
+                                with open(tmp_path, 'rb') as f:
+                                    netcdf_data = f.read()
                                 
-                                    if success:
-                                        # Read file for download
-                                        with open(tmp.name, 'rb') as f:
-                                            netcdf_data = f.read()
-                                    
-                                        st.download_button(
-                                            label="📥 Download NetCDF File",
-                                            data=netcdf_data,
-                                            file_name=f"argo_profiles_{datetime.now().strftime('%Y%m%d_%H%M%S')}.nc",
-                                            mime="application/x-netcdf",
-                                            use_container_width=True
-                                        )
-                                    
-                                        st.success(f"✅ NetCDF file created successfully ({len(netcdf_data) / 1024:.2f} KB)")
-                                    
-                                        # Show validation
-                                        validation = exporter.validate_netcdf(tmp.name)
-                                        with st.expander("📋 File Validation"):
+                                progress_bar.empty()
+                                status_text.empty()
+                                
+                                st.success(f"✅ {result['message']}")
+                                st.info(f"📦 File size: {result['file_size_mb']:.2f} MB | Records: {result['records_exported']:,}")
+                                
+                                st.download_button(
+                                    label="📥 Download NetCDF File",
+                                    data=netcdf_data,
+                                    file_name=f"argo_profiles_{datetime.now().strftime('%Y%m%d_%H%M%S')}.nc",
+                                    mime="application/x-netcdf",
+                                    use_container_width=True
+                                )
+                                
+                                # Show validation if requested
+                                if validate_output:
+                                    with st.expander("📋 File Validation Report", expanded=True):
+                                        validation = exporter.validate_netcdf(tmp_path)
+                                        if validation['valid']:
+                                            st.success(f"✅ {validation['message']}")
                                             st.json(validation)
-                                    else:
-                                        st.error("❌ NetCDF export failed")
+                                        else:
+                                            st.error("❌ Validation failed")
+                                            st.json(validation)
+                            else:
+                                progress_bar.empty()
+                                status_text.empty()
+                                st.error(f"❌ {result['message']}")
                             
-                                # Cleanup
-                                import os
-                                os.unlink(tmp.name)
-                            
-                            except Exception as e:
-                                st.error(f"❌ Error creating NetCDF: {e}")
-                                import traceback
+                            # Cleanup
+                            os.unlink(tmp_path)
+                        
+                        except Exception as e:
+                            progress_bar.empty()
+                            status_text.empty()
+                            st.error(f"❌ Error creating NetCDF: {e}")
+                            import traceback
+                            with st.expander("🔍 Error Details"):
                                 st.code(traceback.format_exc())
                 
                 with export_tab3:
