@@ -128,61 +128,49 @@
 # black==24.1.1
 # flake8==7.0.0
 # Core Framework & UI
-streamlit==1.31.0
-python-dotenv==1.0.0
-plotly==5.18.0
-folium==0.15.1
-streamlit-folium==0.17.0
-matplotlib==3.8.2
+streamlit>=1.31.0
+python-dotenv>=1.0.0
+plotly>=5.18.0
+folium>=0.15.1
+streamlit-folium>=0.17.0
+matplotlib>=3.8.0
 
-# LLM & AI
-langchain==0.1.9
-langchain-community==0.0.24
-langchain-core==0.1.23
-langchain-google-genai==2.0.10
-google-generativeai==0.8.5
+# LLM & AI - Updated for compatibility
+langchain>=0.1.9
+langchain-community>=0.0.24
+langchain-core>=0.1.26  # Fixed: Compatible with langchain 0.1.9
+langchain-google-genai>=2.0.10
+google-generativeai>=0.8.5
 
-# Database
-sqlalchemy==2.0.27
-psycopg2-binary==2.9.9
-alembic==1.13.1
-pandas==2.2.0
+# Database - Fixed for Python 3.13
+sqlalchemy>=2.0.27
+psycopg2-binary>=2.9.10  # Fixed: Compatible with Python 3.13
+alembic>=1.13.1
+pandas>=2.2.0
 
 # Vector Store & Search
-faiss-cpu==1.12.0
-sentence-transformers==2.3.1
-chromadb==0.4.22
+faiss-cpu>=1.7.4
+sentence-transformers>=2.3.1
+chromadb>=0.4.22
 
 # Data Processing & Analysis
-xarray==2024.1.0
-netCDF4==1.6.5
-numpy==1.26.3
-scipy==1.12.0
-openpyxl==3.1.2
-scikit-learn==1.4.0
-
-# Advanced Analytics
-scipy==1.12.0
+xarray>=2024.1.0
+netCDF4>=1.6.5
+numpy>=1.26.0
+scipy>=1.12.0
+openpyxl>=3.1.2
+scikit-learn>=1.4.0
 
 # API & Backend
-fastapi==0.109.2
-uvicorn==0.27.1
-pydantic==2.6.1
-requests==2.31.0
+fastapi>=0.109.2
+uvicorn>=0.27.1
+pydantic>=2.6.1
+requests>=2.31.0
 
 # Utilities
-tqdm==4.66.1
-pyyaml==6.0.1
-python-dateutil==2.8.2
-
-# Development & Testing
-pytest==8.0.0
-black==24.1.1
-flake8==7.0.0
-
-# Optional: Data Formats
-pyarrow==14.0.1
-openpyxl==3.1.2
+tqdm>=4.66.1
+pyyaml>=6.0.1
+python-dateutil>=2.8.2
 
 # Performance
-cachetools==5.3.2
+cachetools>=5.3.2
