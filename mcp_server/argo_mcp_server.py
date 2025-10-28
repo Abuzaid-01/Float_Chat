@@ -80,7 +80,7 @@ class ARGOMCPServer:
         # Tool 2: Get Database Schema
         self.protocol.register_tool(
             name="get_database_schema",
-            description="Get the complete ARGO database schema including table structure, columns, data types, and available parameters.",
+            description="Get the complete ARGO database schema including table structure, columns, data types, and data availability statistics. Returns actual record counts for each parameter to show which data is available (Core ARGO vs BGC ARGO).",
             input_schema={
                 "type": "object",
                 "properties": {}
@@ -309,30 +309,56 @@ class ARGOMCPServer:
             return {"success": False, "error": result.get('error')}
     
     def _handle_get_schema(self) -> Dict:
-        """Handle schema request"""
+        """Handle schema request with data availability check"""
         session = self.db_setup.get_session()
         
         try:
             total_records = session.query(ArgoProfile).count()
             unique_floats = session.query(ArgoProfile.float_id).distinct().count()
             
+            # Check BGC data availability
+            from sqlalchemy import func
+            bgc_availability = session.query(
+                func.count(ArgoProfile.ph).label('ph_count'),
+                func.count(ArgoProfile.dissolved_oxygen).label('do_count'),
+                func.count(ArgoProfile.chlorophyll).label('chl_count')
+            ).first()
+            
+            has_bgc_data = (bgc_availability.ph_count > 0 or 
+                           bgc_availability.do_count > 0 or 
+                           bgc_availability.chl_count > 0)
+            
             schema = {
                 "table": "argo_profiles",
                 "total_records": total_records,
                 "unique_floats": unique_floats,
+                "data_availability": {
+                    "core_argo": {
+                        "temperature": total_records,
+                        "salinity": total_records,
+                        "pressure": total_records,
+                        "status": "✅ AVAILABLE"
+                    },
+                    "bgc_argo": {
+                        "ph": bgc_availability.ph_count,
+                        "dissolved_oxygen": bgc_availability.do_count,
+                        "chlorophyll": bgc_availability.chl_count,
+                        "status": "✅ AVAILABLE" if has_bgc_data else "❌ NOT AVAILABLE - Core ARGO data only"
+                    }
+                },
                 "columns": {
                     "core": [
-                        {"name": "latitude", "type": "FLOAT", "description": "Latitude (-90 to 90)"},
-                        {"name": "longitude", "type": "FLOAT", "description": "Longitude (-180 to 180)"},
-                        {"name": "timestamp", "type": "TIMESTAMP", "description": "Measurement datetime"},
-                        {"name": "pressure", "type": "FLOAT", "description": "Water pressure in dbar"},
-                        {"name": "temperature", "type": "FLOAT", "description": "Temperature in Celsius"},
-                        {"name": "salinity", "type": "FLOAT", "description": "Salinity in PSU"}
+                        {"name": "latitude", "type": "FLOAT", "description": "Latitude (-90 to 90)", "records": total_records},
+                        {"name": "longitude", "type": "FLOAT", "description": "Longitude (-180 to 180)", "records": total_records},
+                        {"name": "timestamp", "type": "TIMESTAMP", "description": "Measurement datetime", "records": total_records},
+                        {"name": "pressure", "type": "FLOAT", "description": "Water pressure in dbar", "records": total_records},
+                        {"name": "temperature", "type": "FLOAT", "description": "Temperature in Celsius", "records": total_records},
+                        {"name": "salinity", "type": "FLOAT", "description": "Salinity in PSU", "records": total_records}
                     ],
                     "bgc": [
-                        {"name": "dissolved_oxygen", "type": "FLOAT", "description": "DO in μmol/kg"},
-                        {"name": "chlorophyll", "type": "FLOAT", "description": "Chlorophyll in mg/m³"},
-                        {"name": "ph", "type": "FLOAT", "description": "pH value"}
+                        {"name": "dissolved_oxygen", "type": "FLOAT", "description": "DO in μmol/kg", "records": bgc_availability.do_count, "available": bgc_availability.do_count > 0},
+                        {"name": "chlorophyll", "type": "FLOAT", "description": "Chlorophyll in mg/m³", "records": bgc_availability.chl_count, "available": bgc_availability.chl_count > 0},
+                        {"name": "ph", "type": "FLOAT", "description": "pH value", "records": bgc_availability.ph_count, "available": bgc_availability.ph_count > 0}
                     ],
                     "metadata": [
                         {"name": "float_id", "type": "VARCHAR", "description": "Float identifier"},
@@ -349,7 +375,8 @@ class ARGOMCPServer:
                     "idx_lat_lon (latitude, longitude)",
                     "idx_timestamp (timestamp)",
                     "idx_float_id (float_id)"
-                ]
+                ],
+                "important_note": "BGC columns exist in schema but contain NO DATA (all NULL). Database contains Core ARGO data only." if not has_bgc_data else "Database contains both Core and BGC ARGO data."
             }
             
             session.close()

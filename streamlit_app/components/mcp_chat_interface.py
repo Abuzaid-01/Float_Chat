@@ -163,16 +163,15 @@ class MCPChatInterface:
             - Calculate thermocline characteristics for Bay of Bengal
             - Identify water masses in the Indian Ocean
             - Compare temperature between Arabian Sea and Bay of Bengal
-            - Analyze temporal trends in dissolved oxygen
             - Calculate mixed layer depth for recent profiles
-            
-            **BGC Queries:**
-            - Show dissolved oxygen levels in Arabian Sea
-            - Get chlorophyll and pH data for coastal regions
+            - Analyze salinity gradients in coastal regions
             
             **Profile Analysis:**
             - Analyze float 2902696 profile statistics
             - Find profiles similar to warm tropical surface water
+            
+            **Note:** Database contains Core ARGO data only (Temperature, Salinity, Pressure).
+            BGC parameters (pH, dissolved oxygen, chlorophyll) are not available.
             
             **💡 MCP automatically selects the right tools for your question!**
             """)

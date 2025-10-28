@@ -554,16 +554,19 @@ class ProductionFloatChatApp:
             - Calculate thermocline characteristics for Bay of Bengal
             - Identify water masses in the Indian Ocean
             - Compare temperature between Arabian Sea and Bay of Bengal
-            - Analyze temporal trends in dissolved oxygen
             - Calculate mixed layer depth for recent profiles
+            - Analyze salinity gradients in coastal regions
             
-            **BGC Queries:**
-            - Show dissolved oxygen levels in Arabian Sea
-            - Get chlorophyll and pH data for coastal regions
+            **Spatial Queries:**
+            - Find nearest floats to 15°N, 75°E
+            - Show profiles within 500km of Mumbai
             
             **Profile Analysis:**
             - Analyze float 2902696 profile statistics
             - Find profiles similar to warm tropical surface water
+            
+            **Note:** Database contains Core ARGO data only (Temperature, Salinity, Pressure).
+            BGC parameters (pH, dissolved oxygen, chlorophyll) are not available.
             
             **💡 MCP automatically selects the right tools for your question!**
             """)

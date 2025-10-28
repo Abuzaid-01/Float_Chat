@@ -816,15 +816,19 @@ RESPOND WITH ONLY THE SQL QUERY (ONE STATEMENT, NO EXPLANATIONS):"""
         """Extract latitude and longitude from natural language query"""
         import re
         
-        # Pattern 1: "15°N, 75°E" or "15N 75E"
-        pattern1 = r'(\d+\.?\d*)[°]?\s*[NS],?\s*(\d+\.?\d*)[°]?\s*[EW]'
+        # Pattern 1: "15°N, 75°E" or "15N 75E" or "15.5°N, 75.2°E"
+        pattern1 = r'(\d+\.?\d*)[°]?\s*([NS]),?\s*(\d+\.?\d*)[°]?\s*([EW])'
         match = re.search(pattern1, query, re.IGNORECASE)
         if match:
             lat = float(match.group(1))
-            lon = float(match.group(2))
-            if 's' in query.lower():
+            lat_dir = match.group(2).upper()
+            lon = float(match.group(3))
+            lon_dir = match.group(4).upper()
+            
+            # Apply direction: N=positive, S=negative, E=positive, W=negative
+            if lat_dir == 'S':
                 lat = -lat
-            if 'w' in query.lower():
+            if lon_dir == 'W':
                 lon = -lon
             return lat, lon
         
@@ -862,8 +866,9 @@ RESPOND WITH ONLY THE SQL QUERY (ONE STATEMENT, NO EXPLANATIONS):"""
                 radius = radius * 1.60934  # Convert miles to km
             return radius
         
-        # Default radius
-        return 50.0  # 50km default
+        # Default radius - increased to 1000km for Indian Ocean coverage
+        # (Indian Ocean floats are sparse, typical spacing is 300-500km)
+        return 1000.0  # 1000km default for better coverage
     
 
 
