@@ -218,25 +218,7 @@ class ARGOMCPServer:
             handler=self._handle_temporal_trends
         )
         
-        # Tool 9: BGC Parameters
-        self.protocol.register_tool(
-            name="get_bgc_parameters",
-            description="Get biogeochemical parameters (dissolved oxygen, chlorophyll, pH) from ARGO BGC floats. NOTE: Current database contains only core ARGO data. BGC parameters (pH, dissolved_oxygen, chlorophyll) are available as columns but not populated with data yet.",
-            input_schema={
-                "type": "object",
-                "properties": {
-                    "parameters": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "List of BGC parameters to retrieve (e.g., ['dissolved_oxygen', 'ph', 'chlorophyll'])"
-                    }
-                },
-                "required": ["parameters"]
-            },
-            handler=self._handle_get_bgc_parameters
-        )
-        
-        # Tool 10: Calculate Mixed Layer Depth
+        # Tool 9: Calculate Mixed Layer Depth
         self.protocol.register_tool(
             name="calculate_mixed_layer_depth",
             description="Calculate Mixed Layer Depth (MLD) for oceanographic profiles using temperature threshold method.",
@@ -550,50 +532,6 @@ class ARGOMCPServer:
     def _handle_temporal_trends(self, region: str, parameter: str, days: int = 90) -> Dict:
         """Handle temporal trend analysis"""
         return self.analytics.trend_analysis(region, parameter, days)
-    
-    def _handle_get_bgc_parameters(self, parameters: List[str], region: str = None) -> Dict:
-        """Handle BGC parameter retrieval"""
-        session = self.db_setup.get_session()
-        
-        cols = ", ".join(parameters)
-        query = f"SELECT latitude, longitude, timestamp, {cols} FROM argo_profiles"
-        
-        conditions = []
-        for param in parameters:
-            conditions.append(f"{param} IS NOT NULL")
-        
-        if conditions:
-            query += " WHERE " + " AND ".join(conditions)
-        
-        if region:
-            query += f" AND ocean_region ILIKE '%{region}%'"
-        
-        query += " LIMIT 1000"
-        
-        df = pd.read_sql(text(query), session.bind)
-        
-        # Check if any BGC data exists at all
-        if df.empty:
-            # Check if columns exist but are empty
-            check_query = f"SELECT COUNT(*) as total FROM argo_profiles"
-            total_records = pd.read_sql(text(check_query), session.bind).iloc[0]['total']
-            
-            session.close()
-            return {
-                "success": False,
-                "error": f"No BGC data found. The database contains {total_records:,} ARGO records, but all BGC parameters ({', '.join(parameters)}) are NULL. Your data source contains only Core ARGO measurements (temperature, salinity, pressure). To analyze BGC parameters, you need to load data from BGC-ARGO floats.",
-                "bgc_data": [],
-                "record_count": 0,
-                "suggestion": "BGC-ARGO floats are specialized floats that measure biogeochemical parameters. They represent about 10% of the ARGO fleet. Check if your NetCDF data source includes BGC floats (look for 'B' files or BGC-specific data)."
-            }
-        
-        session.close()
-        
-        return {
-            "success": True,
-            "bgc_data": df.to_dict('records'),
-            "record_count": len(df)
-        }
     
     def _handle_calculate_mld(self, query: str, threshold: float = 0.5) -> Dict:
         """Handle mixed layer depth calculation"""

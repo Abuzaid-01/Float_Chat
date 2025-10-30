@@ -36,11 +36,11 @@ class MCPQueryProcessor:
         """Initialize query pattern to tool mapping"""
         return {
             'schema': ['schema', 'structure', 'columns', 'database', 'table'],
+            'mcp_tools': ['mcp tools', 'available tools', 'list tools', 'what tools', 'which tools', 'mcp capabilities', 'tools available'],
             'thermocline': ['thermocline', 'temperature gradient', 'thermal structure'],
             'water_mass': ['water mass', 'water masses', 'T-S', 'temperature-salinity'],
             'comparison': ['compare', 'comparison', 'difference between', 'versus', 'vs'],
             'temporal': ['trend', 'time series', 'temporal', 'over time', 'historical'],
-            'bgc': ['dissolved oxygen', 'chlorophyll', 'ph', 'oxygen', 'nutrients', 'bgc'],
             'mld': ['mixed layer', 'mld', 'surface layer'],
             'analysis': ['analyze', 'analysis', 'statistics', 'summary'],
             'similar': ['similar', 'like', 'comparable', 'find profiles']
@@ -65,6 +65,24 @@ class MCPQueryProcessor:
         # Step 1: Analyze query and select appropriate tools
         selected_tools = self._select_tools(user_query)
         print(f"\n🔧 Selected MCP Tools: {selected_tools}")
+        
+        # Handle MCP tool listing (meta-query)
+        if 'list_mcp_tools' in selected_tools:
+            tools_list = self.mcp_server.list_tools()
+            response = self._format_tools_list(tools_list)
+            execution_time = time.time() - start_time
+            
+            print(f"\n✅ MCP Tools listing completed in {execution_time:.2f}s")
+            
+            return {
+                'success': True,
+                'query': user_query,
+                'tools_used': ['list_mcp_tools'],
+                'tool_results': {'list_mcp_tools': tools_list},
+                'response': response,
+                'execution_time': execution_time,
+                'mcp_enabled': True
+            }
         
         # Step 2: Execute tools in sequence
         tool_results = {}
@@ -102,6 +120,15 @@ class MCPQueryProcessor:
         query_lower = query.lower()
         selected = []
         
+        # Check for MCP tools listing first (meta-query about system capabilities)
+        if any(word in query_lower for word in self.query_patterns['mcp_tools']):
+            return ['list_mcp_tools']  # Special flag for tool listing
+        
+        # Check for schema/structure questions
+        if any(word in query_lower for word in self.query_patterns['schema']):
+            selected.append('get_database_schema')
+            return selected  # Schema questions don't need other tools
+        
         # Always start with data query for most questions
         needs_data = any(word in query_lower for word in [
             'show', 'get', 'find', 'retrieve', 'display', 'list',
@@ -111,11 +138,6 @@ class MCPQueryProcessor:
         
         if needs_data:
             selected.append('query_argo_data')
-        
-        # Check for schema/structure questions
-        if any(word in query_lower for word in self.query_patterns['schema']):
-            selected.append('get_database_schema')
-            return selected  # Schema questions don't need other tools
         
         # Check for thermocline analysis
         if any(word in query_lower for word in self.query_patterns['thermocline']):
@@ -134,10 +156,6 @@ class MCPQueryProcessor:
         # Check for temporal analysis
         if any(word in query_lower for word in self.query_patterns['temporal']):
             selected.append('analyze_temporal_trends')
-        
-        # Check for BGC parameters
-        if any(word in query_lower for word in self.query_patterns['bgc']):
-            selected.append('get_bgc_parameters')
         
         # Check for MLD calculation
         if any(word in query_lower for word in self.query_patterns['mld']):
@@ -198,12 +216,6 @@ class MCPQueryProcessor:
                     'region': region,
                     'parameter': parameter,
                     'days': 90
-                })
-            
-            elif tool_name == 'get_bgc_parameters':
-                bgc_params = self._extract_bgc_parameters(query)
-                result = self.mcp_server.call_tool('get_bgc_parameters', {
-                    'parameters': bgc_params
                 })
             
             elif tool_name == 'calculate_mixed_layer_depth':
@@ -399,22 +411,6 @@ Provide a clear, comprehensive answer:"""
         else:
             return 'temperature'
     
-    def _extract_bgc_parameters(self, query: str) -> List[str]:
-        """Extract BGC parameters from query"""
-        query_lower = query.lower()
-        params = []
-        
-        if 'oxygen' in query_lower or 'dissolved oxygen' in query_lower:
-            params.append('dissolved_oxygen')
-        if 'chlorophyll' in query_lower:
-            params.append('chlorophyll')
-        if 'ph' in query_lower:
-            params.append('ph')
-        if 'nitrate' in query_lower:
-            params.append('nitrate')
-        
-        return params if params else ['dissolved_oxygen', 'chlorophyll']
-    
     def _extract_float_id(self, query: str) -> str:
         """Extract float ID from query"""
         import re
@@ -429,6 +425,30 @@ Provide a clear, comprehensive answer:"""
             return match.group(1)
         
         return '2902696'  # Default
+    
+    def _format_tools_list(self, tools_list: List[Dict]) -> str:
+        """Format MCP tools list into a readable response"""
+        if not tools_list:
+            return "No MCP tools are currently available."
+        
+        response = f"## Available MCP Tools ({len(tools_list)} total)\n\n"
+        response += "The FloatChat system has the following specialized oceanographic analysis tools:\n\n"
+        
+        for i, tool in enumerate(tools_list, 1):
+            tool_name = tool.get('name', 'Unknown')
+            description = tool.get('description', 'No description available')
+            
+            response += f"**{i}. {tool_name}**\n"
+            response += f"   {description}\n\n"
+        
+        response += "\n💡 **How to use these tools:**\n"
+        response += "Simply ask natural language questions, and the system will automatically select and execute the appropriate tools. For example:\n"
+        response += "- 'What is the database structure?' → Uses `get_database_schema`\n"
+        response += "- 'Show floats near 15°N, 75°E' → Uses `query_argo_data`\n"
+        response += "- 'Calculate thermocline depth' → Uses `calculate_thermocline`\n"
+        response += "- 'Identify water masses' → Uses `identify_water_masses`\n"
+        
+        return response
     
     def get_mcp_capabilities(self) -> Dict:
         """Return MCP server capabilities"""
