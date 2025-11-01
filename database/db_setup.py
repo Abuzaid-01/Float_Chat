@@ -8,7 +8,17 @@ load_dotenv()
 
 class DatabaseSetup:
     def __init__(self):
-        self.database_url = os.getenv('DATABASE_URL')
+        # Try Streamlit secrets first, then fall back to environment variable
+        try:
+            import streamlit as st
+            self.database_url = st.secrets.get("DATABASE_URL", os.getenv('DATABASE_URL'))
+        except (ImportError, FileNotFoundError):
+            # If not in Streamlit or secrets not found, use environment variable
+            self.database_url = os.getenv('DATABASE_URL')
+        
+        if not self.database_url:
+            raise ValueError("DATABASE_URL not found in environment variables or Streamlit secrets")
+        
         self.engine = create_engine(self.database_url, echo=False)
         self.SessionLocal = sessionmaker(bind=self.engine)
     
