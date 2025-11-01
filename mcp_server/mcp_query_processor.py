@@ -133,7 +133,8 @@ class MCPQueryProcessor:
         needs_data = any(word in query_lower for word in [
             'show', 'get', 'find', 'retrieve', 'display', 'list',
             'temperature', 'salinity', 'pressure', 'ocean', 'sea',
-            'float', 'profile', 'data', 'measurement'
+            'float', 'profile', 'data', 'measurement', 'calculate', 'what',
+            'how', 'analyze', 'analysis'
         ])
         
         if needs_data:
@@ -141,24 +142,36 @@ class MCPQueryProcessor:
         
         # Check for thermocline analysis
         if any(word in query_lower for word in self.query_patterns['thermocline']):
+            # Ensure we fetch data first, then calculate thermocline
+            if 'query_argo_data' not in selected:
+                selected.insert(0, 'query_argo_data')
             selected.append('calculate_thermocline')
         
         # Check for water mass identification
         if any(word in query_lower for word in self.query_patterns['water_mass']):
+            # Ensure we fetch data first, then identify water masses
+            if 'query_argo_data' not in selected:
+                selected.insert(0, 'query_argo_data')
             selected.append('identify_water_masses')
         
         # Check for regional comparison
         if any(word in query_lower for word in self.query_patterns['comparison']):
             # Extract region names if possible
             if 'arabian' in query_lower and 'bengal' in query_lower:
+                if 'query_argo_data' not in selected:
+                    selected.insert(0, 'query_argo_data')
                 selected.append('compare_regions')
         
         # Check for temporal analysis
         if any(word in query_lower for word in self.query_patterns['temporal']):
+            if 'query_argo_data' not in selected:
+                selected.insert(0, 'query_argo_data')
             selected.append('analyze_temporal_trends')
         
         # Check for MLD calculation
         if any(word in query_lower for word in self.query_patterns['mld']):
+            if 'query_argo_data' not in selected:
+                selected.insert(0, 'query_argo_data')
             selected.append('calculate_mixed_layer_depth')
         
         # Check for profile analysis
