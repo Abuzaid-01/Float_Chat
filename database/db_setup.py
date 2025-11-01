@@ -9,11 +9,18 @@ load_dotenv()
 class DatabaseSetup:
     def __init__(self):
         # Try Streamlit secrets first, then fall back to environment variable
+        self.database_url = None
+        
         try:
             import streamlit as st
-            self.database_url = st.secrets.get("DATABASE_URL", os.getenv('DATABASE_URL'))
-        except (ImportError, FileNotFoundError):
-            # If not in Streamlit or secrets not found, use environment variable
+            # Streamlit secrets can be accessed like a dictionary
+            if "DATABASE_URL" in st.secrets:
+                self.database_url = st.secrets["DATABASE_URL"]
+        except (ImportError, FileNotFoundError, KeyError):
+            pass
+        
+        # Fall back to environment variable if not in Streamlit secrets
+        if not self.database_url:
             self.database_url = os.getenv('DATABASE_URL')
         
         if not self.database_url:
