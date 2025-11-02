@@ -16,15 +16,27 @@ class DatabaseSetup:
             # Streamlit secrets can be accessed like a dictionary
             if "DATABASE_URL" in st.secrets:
                 self.database_url = st.secrets["DATABASE_URL"]
-        except (ImportError, FileNotFoundError, KeyError):
-            pass
+                print(f"✅ DATABASE_URL loaded from Streamlit secrets")
+            else:
+                print(f"⚠️ DATABASE_URL not found in Streamlit secrets. Available keys: {list(st.secrets.keys())}")
+        except ImportError:
+            print("ℹ️ Streamlit not available, using environment variable")
+        except FileNotFoundError:
+            print("⚠️ Streamlit secrets file not found")
+        except Exception as e:
+            print(f"⚠️ Error reading Streamlit secrets: {e}")
         
         # Fall back to environment variable if not in Streamlit secrets
         if not self.database_url:
             self.database_url = os.getenv('DATABASE_URL')
+            if self.database_url:
+                print(f"✅ DATABASE_URL loaded from environment variable")
         
         if not self.database_url:
-            raise ValueError("DATABASE_URL not found in environment variables or Streamlit secrets")
+            raise ValueError(
+                "DATABASE_URL not found in environment variables or Streamlit secrets. "
+                "Please add DATABASE_URL to Streamlit Cloud Settings → Secrets"
+            )
         
         self.engine = create_engine(self.database_url, echo=False)
         self.SessionLocal = sessionmaker(bind=self.engine)
