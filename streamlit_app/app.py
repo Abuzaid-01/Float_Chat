@@ -3,6 +3,15 @@
 
 
 import streamlit as st
+
+# Page configuration - MUST be first Streamlit command
+st.set_page_config(
+    page_title="FloatChat - ARGO Data Explorer",
+    page_icon="🌊",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 import sys
 from pathlib import Path
 import pandas as pd
@@ -28,14 +37,6 @@ from database.models import ArgoProfile, QueryLog
 from dotenv import load_dotenv
 
 load_dotenv()
-
-# Page configuration
-st.set_page_config(
-    page_title="FloatChat - ARGO Data Explorer",
-    page_icon="🌊",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
 
 # Custom CSS - Production Grade
 st.markdown("""

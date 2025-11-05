@@ -241,7 +241,7 @@ class ARGOMCPServer:
         )
     
     # Tool Handlers
-    def _handle_query_argo_data(self, query: str, limit: int = 1000) -> Dict:
+    def _handle_query_argo_data(self, query: str, limit: int = 5000) -> Dict:
         """Handle ARGO data query"""
         import json
         from decimal import Decimal
@@ -251,7 +251,10 @@ class ARGOMCPServer:
         result = self.query_processor.process_query(query)
         
         if result['success']:
-            df = result['results'].head(limit)
+            full_df = result['results']
+            total_records = len(full_df)
+            df = full_df.head(limit)
+            returned_records = len(df)
             
             # Convert DataFrame to dict, handling Decimal and Timestamp types
             data_records = df.to_dict('records')
@@ -282,10 +285,13 @@ class ARGOMCPServer:
             
             return {
                 "success": True,
-                "record_count": len(df),
+                "record_count": returned_records,
+                "total_matching_records": total_records,
+                "limited": total_records > limit,
                 "data": data_records,
                 "sql": result['sql'],
-                "execution_time": result.get('execution_time', 0)
+                "execution_time": result.get('execution_time', 0),
+                "message": f"Showing {returned_records} of {total_records} total matching records" if total_records > limit else f"All {total_records} matching records returned"
             }
         else:
             return {"success": False, "error": result.get('error')}

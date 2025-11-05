@@ -100,12 +100,18 @@ CRITICAL INSTRUCTIONS:
 5. Keep responses friendly but professional
 6. Use emojis naturally, not excessively
 7. End with a helpful suggestion or follow-up question when appropriate
+8. **IMPORTANT**: If query asks for multiple criteria but some data is missing:
+   - Show what IS available with enthusiasm
+   - Politely explain what's missing
+   - Suggest alternative queries
+   - Example: "I found 23,311 records with temperature > 25°C and good QC! 🌡️ However, dissolved oxygen data is not available in this dataset (Core ARGO only). Would you like to explore temperature and salinity patterns instead?"
 
 Structure your response:
 1. **Opening** (with emoji): Brief acknowledgment of the question
-2. **Key Findings**: Main insights with specific numbers
+2. **Key Findings**: Main insights with specific numbers from available data
 3. **Details**: Elaborate on important patterns (use emojis for emphasis)
-4. **Helpful Note** (optional): Related insights or suggestions
+4. **Missing Data Note** (if applicable): Explain what's not available and why
+5. **Helpful Suggestion**: Alternative queries or follow-up questions
 
 Generate your engaging response:"""
     

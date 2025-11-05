@@ -367,14 +367,16 @@ class EnhancedSQLGenerator:
     ├─ timestamp (TIMESTAMP) - UTC measurement datetime
     ├─ pressure (FLOAT) - Water pressure in dbar (1 dbar ≈ 1m depth)
     
-    CORE PARAMETERS:
+    CORE PARAMETERS (Always available):
     ├─ temperature (FLOAT) - In-situ temperature (°Celsius)
     ├─ salinity (FLOAT) - Practical Salinity (PSU)
     
-    BGC PARAMETERS (Bio-Geo-Chemical):
-    ├─ dissolved_oxygen (FLOAT) - DO in μmol/kg
-    ├─ chlorophyll (FLOAT) - Chlorophyll-a in mg/m³
-    ├─ ph (FLOAT) - pH on seawater scale
+    BGC PARAMETERS (Bio-Geo-Chemical - May not be available in Core ARGO floats):
+    ├─ dissolved_oxygen (FLOAT) - DO in μmol/kg [Check availability before filtering]
+    ├─ chlorophyll (FLOAT) - Chlorophyll-a in mg/m³ [Check availability before filtering]
+    ├─ ph (FLOAT) - pH on seawater scale [Check availability before filtering]
+    
+    NOTE: If user queries BGC parameters but they are not available, still generate SQL for available Core parameters (temp, salinity, pressure)
     
     QUALITY CONTROL:
     ├─ temp_qc (INTEGER) - Temperature QC flag
@@ -940,7 +942,7 @@ RESPOND WITH ONLY THE SQL QUERY (ONE STATEMENT, NO EXPLANATIONS):"""
         
         # Add LIMIT if missing
         if 'LIMIT' not in sql.upper():
-            sql = sql.rstrip(';') + ' LIMIT 1000;'
+            sql = sql.rstrip(';') + ' LIMIT 5000;'  # Increased from 1000 to 5000
         
         # Ensure LIMIT is reasonable
         limit_match = re.search(r'LIMIT\s+(\d+)', sql, re.IGNORECASE)

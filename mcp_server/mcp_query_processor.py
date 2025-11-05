@@ -196,7 +196,7 @@ class MCPQueryProcessor:
             if tool_name == 'query_argo_data':
                 result = self.mcp_server.call_tool('query_argo_data', {
                     'query': query,
-                    'limit': 1000
+                    'limit': 5000  # Increased from 1000 to 5000 records
                 })
             
             elif tool_name == 'get_database_schema':
