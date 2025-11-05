@@ -32,12 +32,13 @@ class ArgoProfile(Base):
     platform_type = Column(String(50), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     
-    # Create indexes for efficient querying
+    # Create indexes for efficient querying with schema specification
     __table_args__ = (
         Index('idx_lat_lon', 'latitude', 'longitude'),
         Index('idx_timestamp', 'timestamp'),
         Index('idx_float_id', 'float_id'),
         Index('idx_spatial_temporal', 'latitude', 'longitude', 'timestamp'),
+        {'schema': 'public'}
     )
 
 class ProfileSummary(Base):
@@ -59,11 +60,13 @@ class ProfileSummary(Base):
     
     __table_args__ = (
         Index('idx_summary_location', 'latitude', 'longitude'),
+        {'schema': 'public'}
     )
 
 class QueryLog(Base):
     """Log user queries for analysis"""
     __tablename__ = 'query_logs'
+    __table_args__ = {'schema': 'public'}
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_query = Column(Text, nullable=False)
