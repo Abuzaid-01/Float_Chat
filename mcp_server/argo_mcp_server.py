@@ -457,19 +457,11 @@ class ARGOMCPServer:
             session = self.db_setup.get_session()
             try:
                 # Extract region name
-                query_lower = query.lower()
-                if 'bengal' in query_lower:
-                    region_name = 'Bay of Bengal'
-                elif 'arabian' in query_lower:
-                    region_name = 'Arabian Sea'
-                elif 'equatorial' in query_lower:
-                    region_name = 'Equatorial Indian Ocean'
-                else:
-                    region_name = None
+                region_name = 'Bay of Bengal' if 'bengal' in query.lower() else 'Arabian Sea' if 'arabian' in query.lower() else None
                 
                 if region_name:
-                    # Direct SQL for specific regions
-                    if region_name == 'Bay of Bengal':
+                    # Direct SQL for Bay of Bengal or Arabian Sea
+                    if 'Bengal' in region_name:
                         sql = """
                         SELECT pressure, temperature, latitude, longitude, timestamp
                         FROM argo_profiles
@@ -481,24 +473,12 @@ class ARGOMCPServer:
                         ORDER BY pressure ASC
                         LIMIT 5000;
                         """
-                    elif region_name == 'Arabian Sea':
+                    else:  # Arabian Sea
                         sql = """
                         SELECT pressure, temperature, latitude, longitude, timestamp
                         FROM argo_profiles
                         WHERE latitude BETWEEN 8 AND 24
                           AND longitude BETWEEN 50 AND 78
-                          AND pressure IS NOT NULL
-                          AND temperature IS NOT NULL
-                          AND temp_qc IN (1, 2, 3)
-                        ORDER BY pressure ASC
-                        LIMIT 5000;
-                        """
-                    else:  # Equatorial Indian Ocean
-                        sql = """
-                        SELECT pressure, temperature, latitude, longitude, timestamp
-                        FROM argo_profiles
-                        WHERE latitude BETWEEN -10 AND 5
-                          AND longitude BETWEEN 40 AND 100
                           AND pressure IS NOT NULL
                           AND temperature IS NOT NULL
                           AND temp_qc IN (1, 2, 3)
@@ -527,22 +507,11 @@ class ARGOMCPServer:
         # Calculate thermocline using the advanced method
         thermocline = self.analytics.calculate_thermocline_advanced(df)
         
-        # Determine region from query
-        query_lower = query.lower()
-        if 'bengal' in query_lower:
-            region = "Bay of Bengal"
-        elif 'arabian' in query_lower:
-            region = "Arabian Sea"
-        elif 'equatorial' in query_lower:
-            region = "Equatorial Indian Ocean"
-        else:
-            region = "Unknown"
-        
         return {
             "success": True,
             "thermocline": thermocline,
             "record_count": len(df),
-            "region": region
+            "region": "Bay of Bengal" if 'bengal' in query.lower() else "Arabian Sea" if 'arabian' in query.lower() else "Unknown"
         }
     
     def _handle_identify_water_masses(self, query: str) -> Dict:
