@@ -15,7 +15,7 @@ from tqdm import tqdm
 
 # Connection strings
 LOCAL_DB = "postgresql://postgres:floatchat123@localhost:5432/floatchat"
-NEON_DB = "postgresql://neondb_owner:npg_8yOoZiL1bJpW@ep-purple-bread-a83vjb6i-pooler.eastus2.azure.neon.tech/neondb?sslmode=require"
+NEON_DB = "postgresql://neondb_owner:npg_8yOoZiL1bJpW@ep-falling-block-a8srv2pf-pooler.eastus2.azure.neon.tech/neondb?sslmode=require"
 
 def test_connections():
     """Test both database connections"""
