@@ -140,7 +140,30 @@ class MCPChatInterface:
             with col1:
                 st.markdown("**Tools Executed:**")
                 for tool in mcp_details['tools_used']:
-                    st.markdown(f"✅ `{tool}`")
+                    # Check both isError flag and success field in content
+                    tool_result = mcp_details['tool_results'].get(tool, {})
+                    is_error = tool_result.get('isError', False)
+                    
+                    # Also check if the tool returned success: False in its content
+                    tool_success = True  # Default to success
+                    if not is_error and 'content' in tool_result:
+                        try:
+                            content_text = tool_result['content'][0].get('text', '{}')
+                            content_data = json.loads(content_text)
+                            # Only treat as failure if success is explicitly False
+                            # Missing success field is treated as success
+                            if 'success' in content_data:
+                                tool_success = content_data['success']
+                        except:
+                            pass  # If we can't parse, assume success
+                    
+                    # Determine final status
+                    if is_error or not tool_success:
+                        status = "❌"
+                    else:
+                        status = "✅"
+                    
+                    st.markdown(f"{status} `{tool}`")
             
             with col2:
                 st.metric("Execution Time", f"{mcp_details['execution_time']:.2f}s")

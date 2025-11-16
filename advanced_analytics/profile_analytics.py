@@ -36,8 +36,6 @@ class AdvancedProfileAnalytics:
         df = df.sort_values('pressure').copy()
         water_masses = []
         
-        # Enhanced water mass definitions for Indian Ocean
-        # Based on oceanographic literature
         water_mass_criteria = {
             'Indian Ocean Surface Water (IOSW)': {
                 'temp_range': (25, 30),
@@ -287,76 +285,7 @@ class AdvancedProfileAnalytics:
     def __init__(self):
         self.db_setup = DatabaseSetup()
     
-    # def calculate_thermocline(self, df: pd.DataFrame) -> Dict:
-    #     """
-    #     Calculate thermocline characteristics
-    #     - Depth (pressure)
-    #     - Strength (temperature gradient)
-    #     - Width
-    #     """
-    #     if df.empty or 'pressure' not in df.columns or 'temperature' not in df.columns:
-    #         return {
-    #             'thermocline_depth_dbar': None,
-    #             'thermocline_strength': None,
-    #             'surface_temp': None,
-    #             'deep_temp': None,
-    #             'error': 'Insufficient data'
-    #         }
-        
-    #     df = df.sort_values('pressure').copy()
-        
-    #     # Remove duplicates and NaN
-    #     df = df.dropna(subset=['pressure', 'temperature'])
-    #     df = df.drop_duplicates(subset=['pressure'])
-        
-    #     if len(df) < 5:
-    #         return {
-    #             'thermocline_depth_dbar': None,
-    #             'thermocline_strength': None,
-    #             'surface_temp': float(df['temperature'].iloc[0]) if len(df) > 0 else None,
-    #             'deep_temp': float(df['temperature'].iloc[-1]) if len(df) > 0 else None,
-    #             'error': 'Not enough data points for thermocline calculation'
-    #         }
-        
-    #     # Calculate temperature gradient (°C per meter, converting dbar to meters)
-    #     pressure_diff = df['pressure'].diff()
-    #     temp_diff = df['temperature'].diff()
-        
-    #     # Only consider significant pressure differences (> 1 dbar)
-    #     df['temp_gradient'] = np.where(
-    #         pressure_diff > 1.0,
-    #         abs(temp_diff / pressure_diff),
-    #         0
-    #     )
-        
-    #     # Find thermocline (maximum gradient) - exclude surface and bottom
-    #     middle_idx = df.iloc[2:-2]  # Exclude first 2 and last 2 points
-        
-    #     if len(middle_idx) == 0:
-    #         return {
-    #             'thermocline_depth_dbar': float(df['pressure'].iloc[len(df)//2]),
-    #             'thermocline_strength': 0.0,
-    #             'surface_temp': float(df['temperature'].iloc[0]),
-    #             'deep_temp': float(df['temperature'].iloc[-1])
-    #         }
-        
-    #     max_grad_idx = middle_idx['temp_gradient'].idxmax()
-    #     thermocline_depth = df.loc[max_grad_idx, 'pressure']
-    #     thermocline_strength = df.loc[max_grad_idx, 'temp_gradient']
-        
-    #     # Calculate thermocline width (where gradient > 50% of max)
-    #     threshold = thermocline_strength * 0.5
-    #     thermocline_zone = df[df['temp_gradient'] > threshold]
-    #     thermocline_width = (thermocline_zone['pressure'].max() - thermocline_zone['pressure'].min()) if len(thermocline_zone) > 1 else 0.0
-        
-    #     return {
-    #         'thermocline_depth_dbar': float(thermocline_depth),
-    #         'thermocline_strength_deg_per_m': float(thermocline_strength),
-    #         'thermocline_width_m': float(thermocline_width),
-    #         'surface_temp_celsius': float(df['temperature'].iloc[0]),
-    #         'deep_temp_celsius': float(df['temperature'].iloc[-1]),
-    #         'temp_range_celsius': float(df['temperature'].iloc[0] - df['temperature'].iloc[-1])
-    #     }
+    
     def calculate_thermocline_advanced(self, df: pd.DataFrame) -> Dict:
         """
         Advanced thermocline calculation with multiple methods

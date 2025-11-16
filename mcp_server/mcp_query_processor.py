@@ -377,7 +377,33 @@ Provide a clear, comprehensive answer:"""
         summary = "\n---\n**🔧 MCP Tools Executed:**\n"
         
         for tool in tools_used:
-            status = "✅" if not tool_results.get(tool, {}).get('isError') else "❌"
+            # Check both isError flag and success field in content
+            tool_result = tool_results.get(tool, {})
+            is_error = tool_result.get('isError', False)
+            
+            # Also check if the tool returned success: False in its content
+            tool_success = True  # Default to success
+            if not is_error and 'content' in tool_result:
+                try:
+                    content_text = tool_result['content'][0].get('text', '{}')
+                    content_data = json.loads(content_text)
+                    # Debug: print what we're getting
+                    if tool == 'calculate_thermocline':
+                        print(f"DEBUG {tool}: success field = {content_data.get('success', 'MISSING')}")
+                    # Only treat as failure if success is explicitly False
+                    # Missing success field is treated as success
+                    if 'success' in content_data:
+                        tool_success = content_data['success']
+                except Exception as e:
+                    print(f"DEBUG {tool}: failed to parse - {e}")
+                    pass  # If we can't parse, assume success
+            
+            # Determine final status
+            if is_error or not tool_success:
+                status = "❌"
+            else:
+                status = "✅"
+            
             summary += f"- {status} `{tool}`\n"
         
         return summary
