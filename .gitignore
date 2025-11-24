@@ -27,5 +27,22 @@ data/processed/*
 *.db
 *.sqlite3
 
+# Large database dumps and data files (use Neon cloud database instead)
+*.sql
+*.dump
+argo_data.csv
+argo_dump.sql
+argo_fresh_dump.sql
+data.sql
+data_inserts.sql
+
+# Secrets
+.streamlit/secrets.toml
+
+# Backup files
+*.backup
+*_improved.py
+*_new.py
+
 # Logs
 *.log

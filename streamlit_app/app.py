@@ -25,6 +25,7 @@ from data_processing.netcdf_exporter import NetCDFExporter, export_dataframe_to_
 
 from streamlit_app.components.mcp_chat_interface import MCPChatInterface, render_mcp_capabilities
 from streamlit_app.components.advanced_viz_panel import AdvancedVizPanel
+from streamlit_app.components.data_dashboard import DataDashboard
 from mcp_server.mcp_query_processor import mcp_query_processor
 from streamlit_app.components.chat_interface import ChatInterface
 from streamlit_app.components.map_view import MapView
@@ -305,6 +306,7 @@ class ProductionFloatChatApp:
             self.mcp_processor = mcp_query_processor  # MCP Query Processor
             self.sidebar = Sidebar()
             self.mcp_chat_interface = MCPChatInterface()  # MCP Chat Interface
+            self.data_dashboard = DataDashboard()  # Data Dashboard
             self.map_view = MapView()
             self.profile_viewer = ProfileViewer()
             self.advanced_viz = AdvancedVizPanel()  # Advanced Visualizations
@@ -366,73 +368,30 @@ class ProductionFloatChatApp:
         # Sidebar
         self.sidebar.render()
         
-        # Main content area - Enhanced Tabs
-        # tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        #     "💬 Intelligent Chat",
-        #     "🗺️ Geographic Explorer",
-        #     "📊 Profile Analysis",
-        #     "📈 Data Analytics",
-        #     "📥 Export & Reports"
-        # ])
         
-        # with tab1:
-        #     self._render_chat_tab()
-        
-        # with tab2:
-        #     self._render_map_tab()
-        
-        # with tab3:
-        #     self._render_profile_tab()
-        
-        # with tab4:
-        #     self._render_analytics_tab()
-        
-        # with tab5:
-        #     self._render_export_tab()
-        
-        # # Footer with session info
-        # self._render_footer()
-        
-        # Main content area - Enhanced Tabs with MCP
-        # tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        #     "💬 Intelligent Chat (MCP)",
-        #     "🗺️ Geographic Explorer",
-        #     "📊 Profile Analysis",
-        #     "🔬 Advanced Visualizations",
-        #     "📈 Data Analytics",
-        #     "📥 Export & Reports"
-        # ])
-        # REPLACE WITH THIS:
-        tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
-    "💬 Intelligent Chat (MCP)",
-    "🗺️ Geographic Explorer (Plotly)",
-    "🗺️ Geographic Explorer (Leaflet)",  # NEW TAB
-    "📊 Profile Analysis",
-    "🔬 Advanced Visualizations",
-    "📈 Data Analytics",
-    "📥 Export & Reports"
-])
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([
+            "💬 Intelligent Chat",
+            "📊 Data Dashboard",
+            "🗺️ Maps & Locations",
+            "📊 Analysis & Visualizations",
+            "📥 Export & Reports"
+        ])
         
         with tab1:
             self._render_chat_tab()
         
         with tab2:
-            self._render_map_tab()
-
-        with tab3:
-             
-             self._render_leaflet_map_tab()    
+            self._render_dashboard_tab()
         
         with tab3:
-            self._render_profile_tab()
+            # Combined Maps tab with toggle
+            self._render_combined_maps_tab()
         
         with tab4:
-            self._render_advanced_viz_tab()
+            # Combined Analysis tab with multiple options
+            self._render_combined_analysis_tab()
         
         with tab5:
-            self._render_analytics_tab()
-        
-        with tab6:
             self._render_export_tab()
 
 
@@ -461,6 +420,14 @@ class ProductionFloatChatApp:
                 '<span class="status-badge status-warning">● LIMITED</span>',
                 unsafe_allow_html=True
             )
+    
+    def _render_dashboard_tab(self):
+        """Render the data dashboard"""
+        try:
+            self.data_dashboard.render()
+        except Exception as e:
+            st.error(f"Error rendering dashboard: {e}")
+            st.info("Please check your database connection and try again.")
     
     # def _render_chat_tab(self):
     #     """Enhanced chat interface"""
@@ -929,6 +896,53 @@ class ProductionFloatChatApp:
     #     else:
     #         self._render_empty_state("export")
     
+    def _render_combined_maps_tab(self):
+        """Combined Maps tab with Plotly and Leaflet toggle"""
+        st.subheader("🗺️ Maps & Geographic Locations")
+        
+        # Map type selector at the top
+        col1, col2, col3 = st.columns([2, 3, 2])
+        with col2:
+            map_type = st.radio(
+                "Select Map Type",
+                ["📊 Plotly Interactive", "🗺️ Leaflet Classic"],
+                horizontal=True,
+                help="Choose between Plotly (interactive) or Leaflet (classic) map visualization"
+            )
+        
+        st.markdown("---")
+        
+        # Render the selected map
+        if "Plotly" in map_type:
+            self._render_map_tab()
+        else:
+            self._render_leaflet_map_tab()
+    
+    def _render_combined_analysis_tab(self):
+        """Combined Analysis tab with Profile, Advanced Viz, and Analytics"""
+        st.subheader("📊 Analysis & Visualizations")
+        
+        # Analysis type selector
+        analysis_type = st.selectbox(
+            "Select Analysis Type",
+            [
+                "📊 Profile Analysis (Temperature/Salinity)",
+                "🔬 Advanced Visualizations",
+                "📈 Data Analytics & Statistics"
+            ],
+            help="Choose the type of analysis you want to perform"
+        )
+        
+        st.markdown("---")
+        
+        # Render the selected analysis
+        if "Profile" in analysis_type:
+            self._render_profile_tab()
+        elif "Advanced" in analysis_type:
+            self._render_advanced_viz_tab()
+        else:
+            self._render_analytics_tab()
+    
     def _render_export_tab(self):
         """Export and reporting - ENHANCED with NetCDF"""
         st.subheader("📥 Export Data & Generate Reports")
@@ -1363,10 +1377,10 @@ Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
         
         with col3:
             st.markdown("""
-            **Support**  
-            📧 [support@floatchat.org](mailto:support@floatchat.org)  
-            📚 [Documentation](https://docs.floatchat.org)  
-            💬 [Feedback](https://feedback.floatchat.org)
+            **Developer**  
+            �‍💻 Built by [Abuzaid](https://www.linkedin.com/in/abuzaid01)  
+            � [GitHub](https://github.com/Abuzaid-01)  
+            💬 Ask "Who built you?" in chat!
             """)
 
 

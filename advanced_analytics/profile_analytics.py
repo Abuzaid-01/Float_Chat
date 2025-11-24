@@ -624,21 +624,73 @@ class AdvancedProfileAnalytics:
         """Compare parameters between regions"""
         session = self.db_setup.get_session()
         
-        for region in [region1, region2]:
-            query = text(f"""
-            SELECT {parameter}, COUNT(*) as count
-            FROM argo_profiles
-            WHERE ocean_region ILIKE '%{region}%'
-              AND {parameter} IS NOT NULL
-            GROUP BY ROUND({parameter}, 1)
-            ORDER BY {parameter}
-            """)
+        try:
+            results = {}
             
-            df = pd.read_sql(query, session.bind)
-        
-        session.close()
-        
-        return {"region1": region1, "region2": region2, "parameter": parameter}
+            for region in [region1, region2]:
+                query = text(f"""
+                SELECT 
+                    AVG({parameter}) as avg_value,
+                    MIN({parameter}) as min_value,
+                    MAX({parameter}) as max_value,
+                    STDDEV({parameter}) as std_dev,
+                    COUNT(*) as count
+                FROM argo_profiles
+                WHERE ocean_region ILIKE '%{region}%'
+                  AND {parameter} IS NOT NULL
+                  AND temp_qc IN (1,2,3)
+                  AND sal_qc IN (1,2,3)
+                """)
+                
+                df = pd.read_sql(query, session.bind)
+                
+                if len(df) > 0 and df.iloc[0]['count'] > 0:
+                    results[region] = {
+                        'average': float(df.iloc[0]['avg_value']) if df.iloc[0]['avg_value'] is not None else None,
+                        'min': float(df.iloc[0]['min_value']) if df.iloc[0]['min_value'] is not None else None,
+                        'max': float(df.iloc[0]['max_value']) if df.iloc[0]['max_value'] is not None else None,
+                        'std_dev': float(df.iloc[0]['std_dev']) if df.iloc[0]['std_dev'] is not None else None,
+                        'measurements': int(df.iloc[0]['count'])
+                    }
+                else:
+                    results[region] = None
+            
+            session.close()
+            
+            # Determine which is warmer/higher
+            if results.get(region1) and results.get(region2):
+                diff = results[region1]['average'] - results[region2]['average']
+                warmer = region1 if diff > 0 else region2
+                
+                return {
+                    "success": True,
+                    "region1": region1,
+                    "region2": region2,
+                    "parameter": parameter,
+                    "region1_stats": results[region1],
+                    "region2_stats": results[region2],
+                    "difference": abs(diff),
+                    "warmer_region": warmer if parameter == 'temperature' else None,
+                    "higher_region": warmer  # For other parameters
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": "Insufficient data for one or both regions",
+                    "region1": region1,
+                    "region2": region2,
+                    "region1_stats": results.get(region1),
+                    "region2_stats": results.get(region2)
+                }
+                
+        except Exception as e:
+            session.close()
+            return {
+                "success": False,
+                "error": str(e),
+                "region1": region1,
+                "region2": region2
+            }
     
     def trend_analysis(self, region: str, parameter: str, days: int = 90) -> Dict:
         """Analyze trends over time"""

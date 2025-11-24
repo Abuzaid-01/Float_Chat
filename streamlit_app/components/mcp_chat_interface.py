@@ -7,6 +7,7 @@ import streamlit as st
 from typing import Dict
 from mcp_server.mcp_query_processor import mcp_query_processor
 from mcp_server.mcp_response_enhancer import MCPResponseEnhancer
+from streamlit_app.components.smart_suggestions import SmartSuggestionGenerator
 import pandas as pd
 import json
 
@@ -20,6 +21,7 @@ class MCPChatInterface:
     def __init__(self):
         self.mcp_processor = mcp_query_processor
         self.enhancer = MCPResponseEnhancer()
+        self.suggestion_generator = SmartSuggestionGenerator()
         
         # Initialize chat history
         if 'mcp_chat_history' not in st.session_state:
@@ -31,14 +33,25 @@ class MCPChatInterface:
         # Display MCP capabilities badge
         self._render_mcp_badge()
         
+        # Check if there's a queued suggestion query
+        if 'next_query' in st.session_state and st.session_state.next_query:
+            prompt = st.session_state.next_query
+            st.session_state.next_query = None  # Clear it
+            self._handle_user_input(prompt)
+            return  # Rerender will happen
+        
         # Display chat history
         for idx, message in enumerate(st.session_state.mcp_chat_history):
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])
                 
-                # Show MCP execution details
+                # Show MCP execution details with user query for smart suggestions
                 if message.get("mcp_details"):
-                    self._render_mcp_details(message["mcp_details"], message_id=idx)
+                    # Get the previous user message for context
+                    user_query = None
+                    if idx > 0 and st.session_state.mcp_chat_history[idx-1]["role"] == "user":
+                        user_query = st.session_state.mcp_chat_history[idx-1]["content"]
+                    self._render_mcp_details(message["mcp_details"], message_id=idx, user_query=user_query)
                 
                 # Show data
                 if message.get("data") is not None:
@@ -81,6 +94,45 @@ class MCPChatInterface:
         with st.chat_message("user"):
             st.markdown(prompt)
         
+        # Check if this is a question about the developer/creator
+        developer_keywords = ['who built', 'who created', 'who made', 'who developed', 'developer', 'creator', 
+                             'author', 'who are you', 'your creator', 'your developer', 'built by', 'created by',
+                             'made by', 'developed by']
+        
+        if any(keyword in prompt.lower() for keyword in developer_keywords):
+            # Handle developer query directly
+            with st.chat_message("assistant"):
+                response = """
+👨‍💻 **Meet the Developer**
+
+This FloatChat application was built by **Abuzaid** - a passionate developer creating innovative solutions for oceanographic data analysis.
+
+### 🔗 **Connect with Abuzaid:**
+
+- 💼 **LinkedIn**: [www.linkedin.com/in/abuzaid01](https://www.linkedin.com/in/abuzaid01)
+- 💻 **GitHub**: [github.com/Abuzaid-01](https://github.com/Abuzaid-01)
+
+Feel free to connect for collaborations, questions, or feedback! 🚀
+
+---
+
+**FloatChat** is an AI-powered platform for exploring ARGO ocean data, featuring:
+- Natural language queries with MCP (Model Context Protocol)
+- Advanced oceanographic analytics
+- Interactive visualizations
+- Real-time data exploration
+
+Built with ❤️ for the oceanographic research community.
+                """
+                st.markdown(response)
+                
+                # Add to history
+                st.session_state.mcp_chat_history.append({
+                    "role": "assistant",
+                    "content": response
+                })
+            return
+        
         # Process with MCP
         with st.chat_message("assistant"):
             with st.spinner("🔧 MCP tools working..."):
@@ -97,7 +149,7 @@ class MCPChatInterface:
                         'tool_results': result['tool_results']
                     }
                     current_msg_id = len(st.session_state.mcp_chat_history)
-                    self._render_mcp_details(mcp_details, message_id=current_msg_id)
+                    self._render_mcp_details(mcp_details, message_id=current_msg_id, user_query=prompt)
                     
                     # Extract data for visualization
                     data = self._extract_data_from_results(result['tool_results'])
@@ -131,8 +183,8 @@ class MCPChatInterface:
                         "content": error_msg
                     })
     
-    def _render_mcp_details(self, mcp_details: Dict, message_id: int = 0):
-        """Render MCP execution details"""
+    def _render_mcp_details(self, mcp_details: Dict, message_id: int = 0, user_query: str = None):
+        """Render MCP execution details and smart suggestions"""
         
         with st.expander("🔧 MCP Execution Details", expanded=False):
             col1, col2 = st.columns(2)
@@ -169,52 +221,69 @@ class MCPChatInterface:
                 st.metric("Execution Time", f"{mcp_details['execution_time']:.2f}s")
                 st.metric("Tools Used", len(mcp_details['tools_used']))
         
-        with st.expander("💡 MCP-Powered Query Examples", expanded=False):
-            st.markdown("""
-            **Basic Queries:**
-            - Show me temperature profiles in the Arabian Sea
-            - What is the database structure?
-            - Find recent data from October 2025
+        # Smart contextual suggestions based on user query
+        if user_query:
+            suggestions = self.suggestion_generator.generate_suggestions(user_query)
             
-            **Spatial Queries (NEW!):**  <!-- NEW SECTION -->
-            - Find nearest floats to 15°N, 75°E
-            - Show floats within 50km of Mumbai
-            - What floats are closest to 10.5N 70.3E
-            - Find floats within 100 kilometers of Chennai
+            with st.expander("💡 Related Questions You Might Ask", expanded=True):
+                st.markdown("**Based on your query, you might also want to:**")
+                st.markdown("")
+                
+                # Display suggestions as clickable buttons
+                for i, suggestion in enumerate(suggestions, 1):
+                    col1, col2 = st.columns([0.08, 0.92])
+                    with col1:
+                        st.markdown(f"**{i}.**")
+                    with col2:
+                        if st.button(suggestion, key=f"suggest_{message_id}_{i}", use_container_width=True):
+                            # Trigger new query
+                            st.session_state.next_query = suggestion
+                            st.rerun()
+                
+                st.markdown("---")
+                st.caption("💡 Click any suggestion to explore further!")
+        else:
+            # Fallback to general examples if no user query
+            with st.expander("💡 MCP-Powered Query Examples", expanded=False):
+                st.markdown("""
+                **Basic Queries:**
+                - Show me temperature profiles in the Arabian Sea
+                - What is the database structure?
+                - Find recent data from October 2025
+                
+                **Spatial Queries:**
+                - Find nearest floats to 15°N, 75°E
+                - Show floats within 50km of Mumbai
+                
+                **Advanced Analytics (MCP Tools):**
+                - Calculate thermocline characteristics for Bay of Bengal
+                - Identify water masses in the Indian Ocean
+                - Compare temperature between Arabian Sea and Bay of Bengal
+                
+                **Profile Analysis:**
+                - Analyze float 2902696 profile statistics
+                
+                **Note:** Database contains Core ARGO data only (Temperature, Salinity, Pressure).
+                
+                **💡 MCP automatically selects the right tools for your question!**
+                """)
             
-            **Advanced Analytics (MCP Tools):**
-            - Calculate thermocline characteristics for Bay of Bengal
-            - Identify water masses in the Indian Ocean
-            - Compare temperature between Arabian Sea and Bay of Bengal
-            - Calculate mixed layer depth for recent profiles
-            - Analyze salinity gradients in coastal regions
-            
-            **Profile Analysis:**
-            - Analyze float 2902696 profile statistics
-            - Find profiles similar to warm tropical surface water
-            
-            **Note:** Database contains Core ARGO data only (Temperature, Salinity, Pressure).
-            BGC parameters (pH, dissolved oxygen, chlorophyll) are not available.
-            
-            **💡 MCP automatically selects the right tools for your question!**
-            """)
-            
-            # Show individual tool results with unique key
-            if st.checkbox("Show detailed tool results", key=f"show_details_{message_id}"):
-                for tool_name, result in mcp_details['tool_results'].items():
-                    st.markdown(f"**{tool_name}:**")
-                    if result.get('isError'):
-                        st.error("Tool execution failed")
-                    else:
-                        content = result.get('content', [])
-                        if content:
-                            text = content[0].get('text', '')
-                            try:
-                                # Try to format as JSON
-                                data = json.loads(text)
-                                st.json(data)
-                            except:
-                                st.code(text)
+        # Show individual tool results with unique key
+        if st.checkbox("Show detailed tool results", key=f"show_details_{message_id}"):
+            for tool_name, result in mcp_details['tool_results'].items():
+                st.markdown(f"**{tool_name}:**")
+                if result.get('isError'):
+                    st.error("Tool execution failed")
+                else:
+                    content = result.get('content', [])
+                    if content:
+                        text = content[0].get('text', '')
+                        try:
+                            # Try to format as JSON
+                            data = json.loads(text)
+                            st.json(data)
+                        except:
+                            st.code(text)
     
     def _extract_data_from_results(self, tool_results: Dict) -> pd.DataFrame:
         """Extract DataFrame from tool results"""

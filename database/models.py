@@ -75,3 +75,77 @@ class QueryLog(Base):
     execution_time = Column(Float)
     timestamp = Column(DateTime, default=datetime.utcnow)
     success = Column(Integer, default=1)
+
+
+class SavedQuery(Base):
+    """User saved queries and favorites"""
+    __tablename__ = 'saved_queries'
+    __table_args__ = {'schema': 'public'}
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    
+    # Query info
+    query_text = Column(Text, nullable=False)
+    query_type = Column(String(50))  # 'basic', 'mcp', 'spatial', etc.
+    generated_sql = Column(Text)
+    
+    # User metadata
+    user_id = Column(String(100))  # For multi-user in future
+    query_name = Column(String(255))  # User-friendly name
+    description = Column(Text)
+    
+    # Categorization
+    is_favorite = Column(Integer, default=0)  # 0=normal, 1=favorite
+    category = Column(String(50))  # 'temperature', 'salinity', 'spatial', etc.
+    tags = Column(Text)  # JSON array of tags
+    
+    # Usage stats
+    execution_count = Column(Integer, default=0)
+    last_executed = Column(DateTime)
+    
+    # Results metadata
+    result_count = Column(Integer)
+    execution_time = Column(Float)
+    
+    # MCP info
+    mcp_tools_used = Column(Text)  # JSON array
+    
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, onupdate=datetime.utcnow)
+    
+    # Sharing
+    is_public = Column(Integer, default=0)  # 0=private, 1=public
+    share_token = Column(String(100))  # For sharing links
+
+
+class WorkflowRecipe(Base):
+    """Pre-built analysis workflows"""
+    __tablename__ = 'workflow_recipes'
+    __table_args__ = {'schema': 'public'}
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    
+    # Recipe info
+    name = Column(String(255), nullable=False)
+    description = Column(Text)
+    category = Column(String(50))  # 'temperature', 'comparison', 'advanced'
+    difficulty = Column(String(20))  # 'beginner', 'intermediate', 'advanced'
+    
+    # Steps (JSON)
+    steps = Column(Text)  # JSON array of steps
+    
+    # Expected outcome
+    expected_result = Column(Text)
+    estimated_time = Column(String(50))  # "2 minutes"
+    
+    # Usage
+    usage_count = Column(Integer, default=0)
+    rating = Column(Float)  # Average user rating
+    
+    # Metadata
+    icon = Column(String(50))  # Emoji or icon name
+    tags = Column(Text)  # JSON array
+    is_featured = Column(Integer, default=0)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)

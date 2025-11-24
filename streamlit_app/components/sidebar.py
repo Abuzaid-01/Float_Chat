@@ -34,6 +34,11 @@ class Sidebar:
             
             st.markdown("---")
             
+            # Developer info
+            self._render_developer_info()
+            
+            st.markdown("---")
+            
             # Clear chat button with enhanced styling
             if st.button("🗑️ Clear Chat History", use_container_width=True, type="primary"):
                 st.session_state.chat_history = []
@@ -154,3 +159,31 @@ class Sidebar:
         st.markdown("- [ARGO Program](https://argo.ucsd.edu/)")
         st.markdown("- [INCOIS](https://incois.gov.in/)")
         st.markdown("- [GitHub](https://github.com)")
+    
+    def _render_developer_info(self):
+        """Render developer information section"""
+        st.markdown("""
+            <h3 style='color: #0066cc; font-weight: 700;'>👨‍💻 Developer</h3>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("""
+        <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                    padding: 1.2rem; 
+                    border-radius: 12px; 
+                    box-shadow: 0 4px 6px rgba(0,0,0,0.1);'>
+            <p style='color: white; font-weight: 700; font-size: 1.1rem; margin: 0 0 0.8rem 0; text-align: center;'>
+                Built with ❤️ by <strong>Abuzaid</strong>
+            </p>
+            <div style='background: rgba(255,255,255,0.15); padding: 0.8rem; border-radius: 8px; backdrop-filter: blur(10px);'>
+                <p style='color: #e0e7ff; margin: 0.3rem 0; font-weight: 600;'>
+                    💼 <a href='https://www.linkedin.com/in/abuzaid01' target='_blank' style='color: white; text-decoration: none;'>LinkedIn Profile</a>
+                </p>
+                <p style='color: #e0e7ff; margin: 0.3rem 0; font-weight: 600;'>
+                    💻 <a href='https://github.com/Abuzaid-01' target='_blank' style='color: white; text-decoration: none;'>GitHub Profile</a>
+                </p>
+            </div>
+            <p style='color: #c7d2fe; font-size: 0.85rem; margin: 0.8rem 0 0 0; text-align: center; font-style: italic;'>
+                Ask "Who built you?" in the chat for more info!
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
