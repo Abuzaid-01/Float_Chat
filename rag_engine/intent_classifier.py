@@ -305,28 +305,28 @@ Just ask away! I'm here to assist. 🚀"""
 
     def _get_about_floatchat(self) -> str:
         """About FloatChat response"""
-        return """## 🌊 About FloatChat
+        return """## 🌊 Hey! Let me tell you about FloatChat
 
-**FloatChat** is an AI-powered platform that lets you explore **ARGO ocean data** through natural conversation.
+I'm **FloatChat** - your AI companion for exploring the fascinating world of ocean data! 🌊
 
-### 🎯 **What It Does:**
-Transforms complex oceanographic data into simple conversations. Ask questions in plain English, get instant answers with beautiful visualizations.
+Think of me as your personal oceanography expert who speaks your language. No need to learn complex commands or programming - just **chat with me naturally**, and I'll help you discover insights from ARGO float data.
 
-### 🚀 **Key Features:**
-- **Natural Language Queries** - No coding or SQL required
-- **Intelligent Analysis** - 9 specialized oceanographic tools powered by AI
-- **Interactive Visualizations** - Maps, charts, and depth profiles
-- **Real-Time Exploration** - Instant access to ARGO float data
+### 💬 **How I Work:**
+You ask me questions like you'd ask a friend - *"What's the temperature in the Arabian Sea?"* or *"Show me salinity patterns near India"* - and I instantly understand what you need, analyze the data, and show you beautiful visualizations.
 
-### 💡 **Perfect For:**
-- Researchers analyzing ocean data
-- Students learning about oceanography  
-- Anyone curious about our oceans
+### ✨ **What Makes Me Special:**
+- **🧠 Smart & Conversational** - I understand context, remember our conversation, and can answer follow-up questions
+- **🔍 Deep Analysis** - I can identify water masses, calculate thermocline depths, compare regions, and much more
+- **🎨 Visual Storytelling** - Interactive maps, depth profiles, and charts that bring ocean data to life
+- **⚡ Lightning Fast** - Powered by advanced AI to give you instant, accurate answers
 
-### 👨‍💻 **Built By:**
-**Abuzaid** - [LinkedIn](https://www.linkedin.com/in/abuzaid01) | [GitHub](https://github.com/Abuzaid-01)
+### 🎯 **Who I Help:**
+Whether you're a researcher diving deep into ocean patterns, a student learning about marine science, or just someone curious about our oceans - I'm here to make ocean data accessible and exciting for you!
 
-**Start exploring - just ask me anything about ocean data!** 🌊"""
+### 👨‍💻 **Created By:**
+Built with ❤️ by **Abuzaid** - [LinkedIn](https://www.linkedin.com/in/abuzaid01) | [GitHub](https://github.com/Abuzaid-01)
+
+**Ready to explore? Just ask me anything about the ocean!** 🚀🌊"""
 
 
 # Singleton instance
