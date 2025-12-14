@@ -307,52 +307,26 @@ Just ask away! I'm here to assist. 🚀"""
         """About FloatChat response"""
         return """## 🌊 About FloatChat
 
-**FloatChat** is an AI-powered conversational interface for exploring **ARGO oceanographic data**.
+**FloatChat** is an AI-powered platform that lets you explore **ARGO ocean data** through natural conversation.
 
-### 🎯 **What is ARGO?**
-ARGO is a global network of over 4,000 autonomous profiling floats that measure temperature, salinity, and pressure throughout the world's oceans. These floats provide crucial data for:
-- Climate research
-- Ocean circulation studies
-- Weather forecasting
-- Marine ecosystem monitoring
+### 🎯 **What It Does:**
+Transforms complex oceanographic data into simple conversations. Ask questions in plain English, get instant answers with beautiful visualizations.
 
-### 🚀 **FloatChat Features:**
+### 🚀 **Key Features:**
+- **Natural Language Queries** - No coding or SQL required
+- **Intelligent Analysis** - 9 specialized oceanographic tools powered by AI
+- **Interactive Visualizations** - Maps, charts, and depth profiles
+- **Real-Time Exploration** - Instant access to ARGO float data
 
-1. **🤖 Natural Language Queries**
-   - Ask questions in plain English
-   - No need to know SQL or complex commands
+### 💡 **Perfect For:**
+- Researchers analyzing ocean data
+- Students learning about oceanography  
+- Anyone curious about our oceans
 
-2. **🔧 MCP (Model Context Protocol)**
-   - 9 specialized tools for ocean data analysis
-   - Intelligent query routing and orchestration
+### 👨‍💻 **Built By:**
+**Abuzaid** - [LinkedIn](https://www.linkedin.com/in/abuzaid01) | [GitHub](https://github.com/Abuzaid-01)
 
-3. **📊 Advanced Analytics**
-   - Water mass identification
-   - Thermocline depth calculation
-   - Mixed layer depth analysis
-   - Regional comparisons
-   - Temporal trend analysis
-
-4. **🗺️ Interactive Visualizations**
-   - Maps, charts, and T-S diagrams
-   - Real-time data exploration
-
-5. **⚡ Powered by Groq**
-   - Llama 3.3-70B AI model
-   - Fast, intelligent responses
-   - Context-aware conversations
-
-### 💡 **Built For:**
-- Oceanographers and researchers
-- Students learning about ocean data
-- Anyone curious about our oceans!
-
-### 👨‍💻 **Creator:**
-Built with ❤️ by **Abuzaid**
-- 💼 [LinkedIn](https://www.linkedin.com/in/abuzaid01)
-- 💻 [GitHub](https://github.com/Abuzaid-01)
-
-**Start exploring ocean data now - just ask me anything!** 🌊"""
+**Start exploring - just ask me anything about ocean data!** 🌊"""
 
 
 # Singleton instance
