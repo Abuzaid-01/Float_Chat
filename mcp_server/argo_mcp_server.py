@@ -453,46 +453,85 @@ class ARGOMCPServer:
         result = self.query_processor.process_query(data_query)
         
         if not result['success']:
-            # Try a simpler direct query
+            # Try a direct query with explicit coordinate extraction
             session = self.db_setup.get_session()
             try:
-                # Extract region name
-                region_name = 'Bay of Bengal' if 'bengal' in query.lower() else 'Arabian Sea' if 'arabian' in query.lower() else None
+                from sqlalchemy import text
+                import re
                 
-                if region_name:
-                    # Direct SQL for Bay of Bengal or Arabian Sea
-                    if 'Bengal' in region_name:
-                        sql = """
-                        SELECT pressure, temperature, latitude, longitude, timestamp
-                        FROM argo_profiles
-                        WHERE latitude BETWEEN 5 AND 22
-                          AND longitude BETWEEN 80 AND 95
-                          AND pressure IS NOT NULL
-                          AND temperature IS NOT NULL
-                          AND temp_qc IN (1, 2, 3)
-                        ORDER BY pressure ASC
-                        LIMIT 5000;
-                        """
-                    else:  # Arabian Sea
-                        sql = """
-                        SELECT pressure, temperature, latitude, longitude, timestamp
-                        FROM argo_profiles
-                        WHERE latitude BETWEEN 8 AND 24
-                          AND longitude BETWEEN 50 AND 78
-                          AND pressure IS NOT NULL
-                          AND temperature IS NOT NULL
-                          AND temp_qc IN (1, 2, 3)
-                        ORDER BY pressure ASC
-                        LIMIT 5000;
-                        """
+                # Try to extract coordinates
+                lat_match = re.search(r'(\d+(?:\.\d+)?)[°]?N[- ]+(?:to[- ]+)?(\d+(?:\.\d+)?)[°]?N', query)
+                lon_match = re.search(r'(\d+(?:\.\d+)?)[°]?E[- ]+(?:to[- ]+)?(\d+(?:\.\d+)?)[°]?E', query)
+                
+                if lat_match and lon_match:
+                    lat_min, lat_max = float(lat_match.group(1)), float(lat_match.group(2))
+                    lon_min, lon_max = float(lon_match.group(1)), float(lon_match.group(2))
                     
-                    from sqlalchemy import text
+                    sql = f"""
+                    SELECT pressure, temperature, salinity, latitude, longitude, timestamp
+                    FROM argo_profiles
+                    WHERE latitude BETWEEN {lat_min} AND {lat_max}
+                      AND longitude BETWEEN {lon_min} AND {lon_max}
+                      AND pressure IS NOT NULL
+                      AND temperature IS NOT NULL
+                      AND temp_qc IN (1, 2, 3)
+                    ORDER BY pressure ASC
+                    LIMIT 10000;
+                    """
+                    
                     df = pd.read_sql(text(sql), session.connection())
                     session.close()
                     
                     if df.empty:
-                        return {"success": False, "error": "No data found for thermocline calculation"}
+                        return {"success": False, "error": "No temperature/pressure data found in specified region"}
+                    
+                    region_name = f"{lat_min}°N-{lat_max}°N, {lon_min}°E-{lon_max}°E"
+                    
+                elif 'bengal' in query.lower():
+                    # Direct SQL for Bay of Bengal
+                    sql = """
+                    SELECT pressure, temperature, salinity, latitude, longitude, timestamp
+                    FROM argo_profiles
+                    WHERE latitude BETWEEN 5 AND 22
+                      AND longitude BETWEEN 80 AND 95
+                      AND pressure IS NOT NULL
+                      AND temperature IS NOT NULL
+                      AND temp_qc IN (1, 2, 3)
+                    ORDER BY pressure ASC
+                    LIMIT 10000;
+                    """
+                    
+                    df = pd.read_sql(text(sql), session.connection())
+                    session.close()
+                    
+                    if df.empty:
+                        return {"success": False, "error": "No data found for Bay of Bengal"}
+                    
+                    region_name = "Bay of Bengal"
+                    
+                elif 'arabian' in query.lower():
+                    # Direct SQL for Arabian Sea
+                    sql = """
+                    SELECT pressure, temperature, salinity, latitude, longitude, timestamp
+                    FROM argo_profiles
+                    WHERE latitude BETWEEN 8 AND 24
+                      AND longitude BETWEEN 50 AND 78
+                      AND pressure IS NOT NULL
+                      AND temperature IS NOT NULL
+                      AND temp_qc IN (1, 2, 3)
+                    ORDER BY pressure ASC
+                    LIMIT 10000;
+                    """
+                    
+                    df = pd.read_sql(text(sql), session.connection())
+                    session.close()
+                    
+                    if df.empty:
+                        return {"success": False, "error": "No data found for Arabian Sea"}
+                    
+                    region_name = "Arabian Sea"
                 else:
+                    session.close()
                     return {"success": False, "error": "Could not identify region for thermocline calculation"}
                     
             except Exception as e:
@@ -500,35 +539,123 @@ class ARGOMCPServer:
                 return {"success": False, "error": f"Database error: {str(e)}"}
         else:
             df = result['results']
+            region_name = "Query region"
         
         if df.empty:
             return {"success": False, "error": "No data available for thermocline calculation"}
         
-        # Calculate thermocline using the advanced method
-        thermocline = self.analytics.calculate_thermocline_advanced(df)
+        # Check if we have enough data points
+        if len(df) < 10:
+            return {"success": False, "error": f"Insufficient data points ({len(df)}) for thermocline calculation. Need at least 10 measurements."}
         
-        return {
-            "success": True,
-            "thermocline": thermocline,
-            "record_count": len(df),
-            "region": "Bay of Bengal" if 'bengal' in query.lower() else "Arabian Sea" if 'arabian' in query.lower() else "Unknown"
-        }
+        # Calculate thermocline using the advanced method
+        try:
+            thermocline = self.analytics.calculate_thermocline_advanced(df)
+            
+            # Check if calculation was successful
+            if not thermocline.get('success', False):
+                return {
+                    "success": False,
+                    "error": thermocline.get('error', 'Thermocline calculation failed'),
+                    "record_count": len(df)
+                }
+            
+            return {
+                "success": True,
+                "thermocline": thermocline,
+                "record_count": len(df),
+                "region": region_name
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Thermocline calculation error: {str(e)}",
+                "record_count": len(df)
+            }
     
     def _handle_identify_water_masses(self, query: str) -> Dict:
         """Handle water mass identification"""
-        result = self.query_processor.process_query(query)
+        # Enhance query to explicitly request salinity data
+        enhanced_query = query
+        if 'salinity' not in query.lower():
+            enhanced_query = f"{query}. Include temperature, salinity, and pressure data for water mass analysis."
+        
+        result = self.query_processor.process_query(enhanced_query)
         
         if not result['success']:
-            return {"success": False, "error": result.get('error')}
+            # Try direct database query with explicit salinity
+            session = self.db_setup.get_session()
+            try:
+                from sqlalchemy import text
+                
+                # Extract coordinates from query
+                import re
+                lat_match = re.search(r'(\d+(?:\.\d+)?)[°]?N[- ]+(?:to[- ]+)?(\d+(?:\.\d+)?)[°]?N', query)
+                lon_match = re.search(r'(\d+(?:\.\d+)?)[°]?E[- ]+(?:to[- ]+)?(\d+(?:\.\d+)?)[°]?E', query)
+                
+                if lat_match and lon_match:
+                    lat_min, lat_max = float(lat_match.group(1)), float(lat_match.group(2))
+                    lon_min, lon_max = float(lon_match.group(1)), float(lon_match.group(2))
+                    
+                    sql = f"""
+                    SELECT 
+                        pressure, 
+                        temperature, 
+                        salinity,
+                        latitude, 
+                        longitude, 
+                        timestamp,
+                        float_id,
+                        cycle_number
+                    FROM argo_profiles
+                    WHERE latitude BETWEEN {lat_min} AND {lat_max}
+                      AND longitude BETWEEN {lon_min} AND {lon_max}
+                      AND pressure IS NOT NULL
+                      AND temperature IS NOT NULL
+                      AND salinity IS NOT NULL
+                      AND temp_qc IN (1, 2, 3)
+                      AND sal_qc IN (1, 2, 3)
+                    ORDER BY pressure ASC
+                    LIMIT 10000;
+                    """
+                    
+                    df = pd.read_sql(text(sql), session.connection())
+                    session.close()
+                    
+                    if df.empty:
+                        return {"success": False, "error": "No data with temperature and salinity found for water mass identification"}
+                else:
+                    session.close()
+                    return {"success": False, "error": "Could not extract coordinates from query"}
+                    
+            except Exception as e:
+                session.close()
+                return {"success": False, "error": f"Database error: {str(e)}"}
+        else:
+            df = result['results']
         
-        df = result['results']
+        # Check if we have salinity data
+        if 'salinity' not in df.columns or df['salinity'].isna().all():
+            return {
+                "success": False, 
+                "error": "Water mass identification requires salinity data, but no salinity measurements found in this region."
+            }
+        
         # Use the advanced method for more detailed water mass identification
         water_masses = self.analytics.identify_water_masses_advanced(df)
+        
+        # Check if identification was successful
+        if not water_masses.get('success', True):
+            return {
+                "success": False,
+                "error": water_masses.get('error', 'Water mass identification failed')
+            }
         
         return {
             "success": True,
             "water_masses": water_masses,
-            "record_count": len(df)
+            "record_count": len(df),
+            "has_salinity": True
         }
     
     def _handle_compare_regions(self, region1: str, region2: str, parameter: str = "temperature") -> Dict:

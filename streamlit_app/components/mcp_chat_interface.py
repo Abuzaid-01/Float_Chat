@@ -5,16 +5,18 @@ Displays MCP tool execution and structured results
 
 import streamlit as st
 from typing import Dict
+from datetime import datetime
 from mcp_server.mcp_query_processor import mcp_query_processor
 from mcp_server.mcp_response_enhancer import MCPResponseEnhancer
 from streamlit_app.components.smart_suggestions import SmartSuggestionGenerator
+from rag_engine.intent_classifier import intent_classifier
 import pandas as pd
 import json
 
 
 class MCPChatInterface:
     """
-    MCP-enabled chat interface
+    MCP-enabled chat interface with intelligent intent classification
     Shows tool execution, structured results, and enhanced responses
     """
     
@@ -22,6 +24,7 @@ class MCPChatInterface:
         self.mcp_processor = mcp_query_processor
         self.enhancer = MCPResponseEnhancer()
         self.suggestion_generator = SmartSuggestionGenerator()
+        self.intent_classifier = intent_classifier
         
         # Initialize chat history
         if 'mcp_chat_history' not in st.session_state:
@@ -82,7 +85,7 @@ class MCPChatInterface:
         """, unsafe_allow_html=True)
     
     def _handle_user_input(self, prompt: str):
-        """Handle user input with MCP processing"""
+        """Handle user input with intelligent intent classification"""
         
         # Add user message
         st.session_state.mcp_chat_history.append({
@@ -94,49 +97,32 @@ class MCPChatInterface:
         with st.chat_message("user"):
             st.markdown(prompt)
         
-        # Check if this is a question about the developer/creator
-        developer_keywords = ['who built', 'who created', 'who made', 'who developed', 'developer', 'creator', 
-                             'author', 'who are you', 'your creator', 'your developer', 'built by', 'created by',
-                             'made by', 'developed by']
-        
-        if any(keyword in prompt.lower() for keyword in developer_keywords):
-            # Handle developer query directly
-            with st.chat_message("assistant"):
-                response = """
-👨‍💻 **Meet the Developer**
-
-This FloatChat application was built by **Abuzaid** - a passionate developer creating innovative solutions for oceanographic data analysis.
-
-### 🔗 **Connect with Abuzaid:**
-
-- 💼 **LinkedIn**: [www.linkedin.com/in/abuzaid01](https://www.linkedin.com/in/abuzaid01)
-- 💻 **GitHub**: [github.com/Abuzaid-01](https://github.com/Abuzaid-01)
-
-Feel free to connect for collaborations, questions, or feedback! 🚀
-
----
-
-**FloatChat** is an AI-powered platform for exploring ARGO ocean data, featuring:
-- Natural language queries with MCP (Model Context Protocol)
-- Advanced oceanographic analytics
-- Interactive visualizations
-- Real-time data exploration
-
-Built with ❤️ for the oceanographic research community.
-                """
-                st.markdown(response)
+        # Classify intent using AI (with conversation context)
+        with st.chat_message("assistant"):
+            with st.spinner("🤔 Understanding your question..."):
+                # Pass conversation history to help detect follow-ups
+                intent_result = self.intent_classifier.classify_intent(
+                    prompt, 
+                    conversation_history=st.session_state.mcp_chat_history
+                )
+            
+            # Handle based on intent
+            if not intent_result['requires_data_query']:
+                # Direct response for conversational queries
+                st.markdown(intent_result['direct_response'])
                 
                 # Add to history
                 st.session_state.mcp_chat_history.append({
                     "role": "assistant",
-                    "content": response
+                    "content": intent_result['direct_response']
                 })
-            return
-        
-        # Process with MCP
-        with st.chat_message("assistant"):
+                return
+            
+            # Data query - process with MCP (pass conversation history for context)
             with st.spinner("🔧 MCP tools working..."):
-                result = self.mcp_processor.process_query_with_mcp(prompt)
+                # Get recent conversation history (last 6 messages for context)
+                conversation_context = st.session_state.mcp_chat_history[-6:] if len(st.session_state.mcp_chat_history) > 0 else []
+                result = self.mcp_processor.process_query_with_mcp(prompt, conversation_history=conversation_context)
                 
                 if result['success']:
                     # Display response
@@ -162,19 +148,47 @@ Built with ❤️ for the oceanographic research community.
                         "data": data
                     })
                     
-                    # Store for other tabs (only if data has meaningful visualization columns)
+                    # Store for other tabs - ALWAYS store the last query
                     if data is not None and not data.empty:
-                        # Only store if data has actual profile/geographic data for visualization
-                        # Skip storing simple aggregates (count, avg, etc.) that can't be visualized
-                        has_viz_columns = any(col in data.columns for col in ['latitude', 'longitude', 'temperature', 'salinity', 'pressure'])
+                        # Determine what type of data this is
+                        has_geographic = any(col in data.columns for col in ['latitude', 'longitude'])
+                        has_profile = any(col in data.columns for col in ['temperature', 'salinity', 'pressure'])
+                        has_temporal = 'timestamp' in data.columns
                         
-                        if has_viz_columns:
-                            st.session_state.last_query_results = {
-                                'success': True,
-                                'results': data,
-                                'mcp_enabled': True,
-                                'tools_used': result['tools_used']
-                            }
+                        # DEBUG: Show what we're storing
+                        st.success(f"✅ **Data stored for visualization tabs:** {len(data)} records")
+                        if 'temperature' in data.columns:
+                            st.caption(f"🌡️ Temperature range: {data['temperature'].min():.3f}°C - {data['temperature'].max():.3f}°C")
+                        if 'pressure' in data.columns:
+                            st.caption(f"📊 Pressure range: {data['pressure'].min():.3f} - {data['pressure'].max():.3f} dbar")
+                        
+                        st.session_state.last_query_results = {
+                            'success': True,
+                            'results': data,
+                            'mcp_enabled': True,
+                            'tools_used': result['tools_used'],
+                            'query': prompt,  # Store the original query
+                            'has_geographic': has_geographic,
+                            'has_profile': has_profile,
+                            'has_temporal': has_temporal,
+                            'is_aggregated': len(data) <= 100 and not has_geographic  # Likely aggregated stats
+                        }
+                        
+                        # Also store a summary for quick access
+                        st.session_state.last_query_summary = {
+                            'query': prompt,
+                            'record_count': len(data),
+                            'data_type': 'profile' if has_profile else ('geographic' if has_geographic else 'statistical'),
+                            'timestamp': datetime.now()
+                        }
+                    else:
+                        # Even if no data, store the query info
+                        st.session_state.last_query_results = {
+                            'success': False,
+                            'results': pd.DataFrame(),
+                            'query': prompt,
+                            'message': 'No data returned for this query'
+                        }
                 else:
                     error_msg = f"❌ Error: {result.get('error', 'Unknown error')}"
                     st.error(error_msg)

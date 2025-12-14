@@ -215,10 +215,19 @@ class MCPToolServer:
         
         if result['success']:
             df = result['results']
+            
+            # CRITICAL FIX: Only apply limit if we have MORE records than limit
+            # Don't artificially inflate the result count
+            actual_records = len(df)
+            data_to_return = df.head(limit).to_dict('records') if actual_records > limit else df.to_dict('records')
+            
+            print(f"🔍 Query returned {actual_records} records, sending {len(data_to_return)} to client")
+            
             return {
                 "success": True,
-                "record_count": len(df),
-                "data": df.head(limit).to_dict('records'),
+                "record_count": len(data_to_return),  # Return actual count, not inflated
+                "total_matched": actual_records,  # Total that matched the query
+                "data": data_to_return,
                 "sql": result['sql'],
                 "execution_time": result.get('execution_time', 0)
             }

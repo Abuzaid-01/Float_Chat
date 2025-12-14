@@ -46,9 +46,45 @@ class MCPQueryProcessor:
             'similar': ['similar', 'like', 'comparable', 'find profiles']
         }
     
-    def process_query_with_mcp(self, user_query: str) -> Dict:
+    def _enhance_query_with_context(self, user_query: str, conversation_history: List[Dict] = None) -> str:
+        """Enhance query with conversation context for better understanding"""
+        if not conversation_history or len(conversation_history) < 2:
+            return user_query
+        
+        # Check if this is a follow-up query (short, vague, referential)
+        follow_up_indicators = ['yes', 'more', 'tell me more', 'elaborate', 'explain', 'this', 'that', 'it', 'details', 'information']
+        is_follow_up = any(indicator in user_query.lower() for indicator in follow_up_indicators) and len(user_query.split()) < 10
+        
+        if not is_follow_up:
+            return user_query
+        
+        # Get last few messages for context
+        recent_messages = conversation_history[-4:] if len(conversation_history) >= 4 else conversation_history
+        
+        # Extract the last user query and assistant response
+        last_user_query = None
+        last_topic = None
+        
+        for msg in reversed(recent_messages):
+            if msg['role'] == 'user' and msg['content'] != user_query:
+                last_user_query = msg['content']
+                break
+        
+        if last_user_query:
+            # Enhance the query with context
+            enhanced = f"Following up on '{last_user_query}': {user_query}. Provide more detailed information about the same topic."
+            print(f"🔄 Enhanced query with context: {enhanced}")
+            return enhanced
+        
+        return user_query
+    
+    def process_query_with_mcp(self, user_query: str, conversation_history: List[Dict] = None) -> Dict:
         """
-        Process query using MCP tool orchestration
+        Process query using MCP tool orchestration with conversation context
+        
+        Args:
+            user_query: Current user query
+            conversation_history: Previous conversation messages for context
         
         Returns complete result with:
         - Query results
@@ -60,10 +96,15 @@ class MCPQueryProcessor:
         
         print(f"\n{'='*60}")
         print(f"🔍 MCP Query Processing: {user_query}")
+        if conversation_history:
+            print(f"💬 With {len(conversation_history)} previous messages for context")
         print(f"{'='*60}")
         
+        # Enhance query with conversation context
+        enhanced_query = self._enhance_query_with_context(user_query, conversation_history)
+        
         # Step 1: Analyze query and select appropriate tools
-        selected_tools = self._select_tools(user_query)
+        selected_tools = self._select_tools(enhanced_query)
         print(f"\n🔧 Selected MCP Tools: {selected_tools}")
         
         # Handle MCP tool listing (meta-query)
@@ -366,9 +407,11 @@ Available Information:
 Provide a clear, comprehensive answer:"""
         
         try:
-            response = self.response_generator.llm.invoke(prompt)
+            # Use the llm property which now has an invoke method for Groq compatibility
+            response = self.response_generator.invoke(prompt)
             return response.content
-        except:
+        except Exception as e:
+            print(f"⚠️ Error in LLM invocation: {e}")
             return context
     
     def _format_mcp_summary(self, tools_used: List[str], tool_results: Dict) -> str:

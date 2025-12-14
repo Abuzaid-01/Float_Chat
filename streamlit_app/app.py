@@ -1,7 +1,3 @@
-
-
-
-
 import streamlit as st
 
 # Page configuration - MUST be first Streamlit command
@@ -320,13 +316,21 @@ class ProductionFloatChatApp:
         print("✅ FloatChat initialized with MCP support")
     
     def _render_advanced_viz_tab(self):
-        """Advanced visualization tab"""
+        """Advanced visualization tab - QUERY AWARE"""
         st.subheader("🔬 Advanced Oceanographic Visualizations")
         
         if st.session_state.get('last_query_results') is not None:
             results = st.session_state.last_query_results
             if results['success'] and not results['results'].empty:
-                self.advanced_viz.render(results['results'])
+                df = results['results']
+                query_text = results.get('query', 'Your query')
+                
+                # Show query context
+                st.info(f"🔬 **Visualizing data for:** {query_text}")
+                st.caption(f"📊 {len(df)} records available for visualization")
+                
+                st.markdown("---")
+                self.advanced_viz.render(df)
             else:
                 st.info("🔍 No data to display. Run a query in the Chat tab first.")
         else:
@@ -422,12 +426,144 @@ class ProductionFloatChatApp:
             )
     
     def _render_dashboard_tab(self):
-        """Render the data dashboard"""
+        """Render the data dashboard - QUERY-AWARE"""
+        
+        # Check if we have query results to display
+        if st.session_state.get('last_query_results') is not None:
+            results = st.session_state.last_query_results
+            
+            if results.get('success') and results.get('results') is not None and not results['results'].empty:
+                df = results['results']
+                query_text = results.get('query', 'Your query')
+                
+                # Show query context
+                st.info(f"📊 **Dashboard for:** {query_text}")
+                st.caption(f"Showing {len(df)} records from your query")
+                
+                # Render query-specific dashboard
+                self._render_query_dashboard(df, query_text)
+                
+                # Option to see full database dashboard
+                with st.expander("📊 View Full Database Dashboard", expanded=False):
+                    try:
+                        self.data_dashboard.render()
+                    except Exception as e:
+                        st.error(f"Error rendering full dashboard: {e}")
+                return
+        
+        # No query results - show full database dashboard
+        st.info("💡 **Tip:** Ask a question in the Chat tab to see query-specific dashboard!")
         try:
             self.data_dashboard.render()
         except Exception as e:
             st.error(f"Error rendering dashboard: {e}")
             st.info("Please check your database connection and try again.")
+    
+    def _render_query_dashboard(self, df: pd.DataFrame, query_text: str):
+        """Render dashboard based on query results"""
+        
+        st.markdown("### 📊 Query Results Overview")
+        
+        # Key metrics
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("📊 Total Records", f"{len(df):,}")
+        
+        with col2:
+            if 'float_id' in df.columns:
+                st.metric("🎈 Unique Floats", df['float_id'].nunique())
+            else:
+                st.metric("📋 Columns", len(df.columns))
+        
+        with col3:
+            if 'temperature' in df.columns:
+                temp_range = f"{df['temperature'].min():.2f}°C - {df['temperature'].max():.2f}°C"
+                st.metric("🌡️ Temperature", temp_range)
+            elif 'pressure' in df.columns:
+                st.metric("📏 Max Depth", f"{df['pressure'].max():.1f} dbar")
+            else:
+                st.metric("📊 Data Shape", f"{df.shape[0]} × {df.shape[1]}")
+        
+        with col4:
+            if 'timestamp' in df.columns:
+                try:
+                    df['timestamp'] = pd.to_datetime(df['timestamp'])
+                    date_range = f"{df['timestamp'].min().strftime('%Y-%m-%d')} to {df['timestamp'].max().strftime('%Y-%m-%d')}"
+                    st.metric("📅 Date Range", date_range[:20])
+                except:
+                    st.metric("📅 Has Timestamp", "Yes")
+            else:
+                st.metric("📅 Timestamp", "N/A")
+        
+        st.markdown("---")
+        
+        # Visualizations based on available data
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Geographic distribution if available
+            if 'latitude' in df.columns and 'longitude' in df.columns:
+                st.markdown("#### 🗺️ Geographic Distribution")
+                import plotly.express as px
+                fig = px.scatter_geo(
+                    df,
+                    lat='latitude',
+                    lon='longitude',
+                    color='temperature' if 'temperature' in df.columns else None,
+                    title=f"Data Locations ({len(df)} points)",
+                    projection="natural earth"
+                )
+                fig.update_layout(height=400, margin=dict(l=0, r=0, t=40, b=0))
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.markdown("#### 📊 Data Distribution")
+                st.dataframe(df.describe(), use_container_width=True)
+        
+        with col2:
+            # Temperature/Pressure profile if available
+            if 'temperature' in df.columns and 'pressure' in df.columns:
+                st.markdown("#### 🌡️ Temperature Profile")
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=df['temperature'],
+                    y=df['pressure'],
+                    mode='markers',
+                    marker=dict(
+                        size=8,
+                        color=df['temperature'],
+                        colorscale='RdYlBu_r',
+                        showscale=True,
+                        colorbar=dict(title="Temp (°C)")
+                    ),
+                    name='Temperature'
+                ))
+                fig.update_layout(
+                    height=400,
+                    xaxis_title="Temperature (°C)",
+                    yaxis_title="Pressure (dbar)",
+                    yaxis=dict(autorange="reversed"),
+                    title=f"Temperature vs Depth ({len(df)} points)"
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            elif 'salinity' in df.columns:
+                st.markdown("#### 🧂 Salinity Distribution")
+                fig = go.Figure()
+                fig.add_trace(go.Histogram(x=df['salinity'], nbinsx=30, name='Salinity'))
+                fig.update_layout(height=400, xaxis_title="Salinity (PSU)", yaxis_title="Count")
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.markdown("#### 📋 Column Summary")
+                for col in df.columns[:5]:
+                    if df[col].dtype in ['float64', 'int64']:
+                        st.write(f"**{col}:** {df[col].min():.4f} to {df[col].max():.4f}")
+                    else:
+                        st.write(f"**{col}:** {df[col].nunique()} unique values")
+        
+        # Data table
+        st.markdown("---")
+        st.markdown("### 📋 Query Results Data")
+        st.dataframe(df, use_container_width=True, height=300)
     
     # def _render_chat_tab(self):
     #     """Enhanced chat interface"""
@@ -542,20 +678,58 @@ class ProductionFloatChatApp:
         # Render MCP chat interface
         self.mcp_chat_interface.render()
         
-        # Query performance metrics
+        # Query performance metrics and visualization availability
         if st.session_state.get('last_query_results'):
             results = st.session_state.last_query_results
-            if results.get('mcp_enabled'):
-                st.markdown("---")
-                col1, col2, col3 = st.columns(3)
+            
+            st.markdown("---")
+            st.markdown("### 📊 Query Results Summary")
+            
+            # Show available visualizations based on query metadata
+            col1, col2 = st.columns(2)
+            
             with col1:
-                st.metric("🔧 MCP Tools Used", len(results.get('tools_used', [])))
+                st.markdown("#### 📈 Available Visualizations")
+                viz_available = []
+                
+                if results.get('has_geographic', False):
+                    viz_available.append("✅ 🗺️ **Map View** - Geographic visualization available")
+                else:
+                    viz_available.append("❌ 🗺️ Map View - No geographic data")
+                
+                if results.get('has_profile', False):
+                    viz_available.append("✅ 📊 **Profile Analysis** - Temperature/Salinity/Pressure plots available")
+                else:
+                    viz_available.append("❌ 📊 Profile Analysis - No profile data")
+                
+                if results.get('has_temporal', False):
+                    viz_available.append("✅ 📅 **Temporal Analysis** - Time series available")
+                else:
+                    viz_available.append("❌ 📅 Temporal Analysis - No timestamp data")
+                
+                # Always available
+                viz_available.append("✅ 📈 **Statistical Analysis** - Always available")
+                
+                for viz in viz_available:
+                    st.markdown(viz)
+            
             with col2:
+                st.markdown("#### 🔧 Query Information")
+                
+                if results.get('mcp_enabled'):
+                    st.metric("🔧 MCP Tools Used", len(results.get('tools_used', [])))
+                    if results.get('tools_used'):
+                        tools_str = ", ".join(results.get('tools_used', []))
+                        st.caption(f"Tools: {tools_str}")
+                
                 st.metric("📊 Records Retrieved", 
                          len(results['results']) if 'results' in results else 0)
-            with col3:
-                tools_str = ", ".join(results.get('tools_used', []))
-                st.info(f"Tools: {tools_str}")
+                
+                if results.get('query'):
+                    st.caption(f"**Query:** {results['query'][:100]}...")
+                
+            # Helpful tip
+            st.info("💡 **Tip:** Switch to other tabs to view available visualizations for this query!")
 
 
 
@@ -667,6 +841,19 @@ class ProductionFloatChatApp:
             if results['success'] and not results['results'].empty:
                 df = results['results']
                 
+                # Check if data is suitable for profile visualization
+                has_profile_data = 'temperature' in df.columns or 'salinity' in df.columns or 'pressure' in df.columns
+                
+                if not has_profile_data:
+                    st.warning("⚠️ **Profile visualization not available**")
+                    st.info(f"The query '{results.get('query', 'your query')}' returned data without profile measurements (temperature, salinity, or pressure).")
+                    st.markdown("**Available columns:** " + ", ".join(df.columns.tolist()))
+                    
+                    # Show the data table instead
+                    st.markdown("### 📋 Query Results")
+                    st.dataframe(df, use_container_width=True)
+                    return
+                
                 # Profile controls
                 col1, col2 = st.columns([3, 1])
                 
@@ -699,50 +886,107 @@ class ProductionFloatChatApp:
             self._render_empty_state("profile")
 
     def _render_leaflet_map_tab(self):
-        """Render Leaflet-based interactive map"""
+        """Render Leaflet-based interactive map - context-aware"""
         st.subheader("🗺️ Interactive Leaflet Map")
         
         if st.session_state.get('last_query_results') is not None:
             results = st.session_state.last_query_results
+            
+            # Show query context
+            query_text = results.get('query', '')
+            if query_text:
+                st.info(f"🗺️ **Map for:** {query_text}")
+            
             if results['success'] and not results['results'].empty:
-                from streamlit_app.components.leaflet_map import render_leaflet_map_tab
-                render_leaflet_map_tab(results['results'])
+                df = results['results']
+                
+                # Check if geographic data is available
+                has_geographic = 'latitude' in df.columns and 'longitude' in df.columns
+                
+                if not has_geographic:
+                    st.warning("⚠️ **Map visualization not available**")
+                    st.info(f"The query '{query_text}' returned data without geographic coordinates (latitude/longitude).")
+                    st.markdown("**Available columns:** " + ", ".join(df.columns.tolist()))
+                    
+                    # Show alternative visualization
+                    st.markdown("### 📋 Query Results")
+                    st.dataframe(df, use_container_width=True)
+                else:
+                    from streamlit_app.components.leaflet_map import render_leaflet_map_tab
+                    render_leaflet_map_tab(df)
+                    
+                    # Show map statistics
+                    st.markdown("---")
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    with col1:
+                        st.metric("📍 Total Points", len(df))
+                    
+                    with col2:
+                        unique_floats = df['float_id'].nunique() if 'float_id' in df.columns else 'N/A'
+                        st.metric("🎈 Unique Floats", unique_floats)
+                    
+                    with col3:
+                        lat_range = df['latitude'].max() - df['latitude'].min()
+                        st.metric("📏 Lat Range", f"{lat_range:.2f}°")
+                    
+                    with col4:
+                        lon_range = df['longitude'].max() - df['longitude'].min()
+                        st.metric("📏 Lon Range", f"{lon_range:.2f}°")
             else:
                 st.info("🔍 No data to display. Run a query in the Chat tab first.")
         else:
             self._render_empty_state("Leaflet map")        
     
     def _render_profile_statistics(self, df: pd.DataFrame):
-        """Show profile statistics"""
+        """Show profile statistics - context-aware"""
         st.subheader("📈 Profile Statistics")
+        
+        # Get query context
+        query_results = st.session_state.get('last_query_results', {})
+        query_text = query_results.get('query', '')
+        
+        if query_text:
+            st.caption(f"📊 Statistics for: {query_text}")
+        
+        # DEBUG: Show record count
+        st.info(f"📊 **Showing statistics for {len(df)} records**")
         
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             if 'pressure' in df.columns:
-                st.metric("Max Depth", f"{df['pressure'].max():.0f} dbar")
-                st.metric("Avg Depth", f"{df['pressure'].mean():.0f} dbar")
+                st.metric("Max Depth", f"{df['pressure'].max():.1f} dbar")
+                st.metric("Avg Depth", f"{df['pressure'].mean():.1f} dbar")
+            else:
+                st.metric("Pressure", "N/A")
         
         with col2:
             if 'temperature' in df.columns:
                 st.metric("Temp Range", 
-                         f"{df['temperature'].min():.1f}°C - {df['temperature'].max():.1f}°C")
-                st.metric("Avg Temp", f"{df['temperature'].mean():.1f}°C")
+                         f"{df['temperature'].min():.3f}°C - {df['temperature'].max():.3f}°C")
+                st.metric("Avg Temp", f"{df['temperature'].mean():.3f}°C")
+            else:
+                st.metric("Temperature", "N/A")
         
         with col3:
             if 'salinity' in df.columns:
                 st.metric("Salinity Range",
-                         f"{df['salinity'].min():.2f} - {df['salinity'].max():.2f} PSU")
-                st.metric("Avg Salinity", f"{df['salinity'].mean():.2f} PSU")
+                         f"{df['salinity'].min():.3f} - {df['salinity'].max():.3f} PSU")
+                st.metric("Avg Salinity", f"{df['salinity'].mean():.3f} PSU")
+            else:
+                st.metric("Salinity", "N/A")
         
         with col4:
             if 'float_id' in df.columns:
                 st.metric("Unique Floats", df['float_id'].nunique())
                 profiles = df.groupby(['float_id', 'cycle_number']).ngroups if 'cycle_number' in df.columns else 0
                 st.metric("Total Profiles", profiles)
+            else:
+                st.metric("Records", len(df))
     
     def _render_analytics_tab(self):
-        """Data analytics and insights"""
+        """Data analytics and insights - context-aware"""
         st.subheader("📈 Data Analytics & Insights")
         
         if st.session_state.get('last_query_results') is not None:
@@ -750,23 +994,56 @@ class ProductionFloatChatApp:
             if results['success'] and not results['results'].empty:
                 df = results['results']
                 
+                # Show query context
+                query_text = results.get('query', '')
+                if query_text:
+                    st.info(f"📊 **Analytics for:** {query_text}")
+                    st.caption(f"**Data Shape:** {len(df)} records × {len(df.columns)} columns")
+                
+                # Determine what analytics to show based on available data
+                has_temporal = 'timestamp' in df.columns
+                has_regional = 'ocean_region' in df.columns
+                has_geographic = 'latitude' in df.columns and 'longitude' in df.columns
+                
                 # Time series analysis
-                if 'timestamp' in df.columns:
+                if has_temporal:
                     st.markdown("### 📅 Temporal Analysis")
                     self._render_temporal_analysis(df)
+                    st.markdown("---")
                 
-                st.markdown("---")
-                
-                # Statistical analysis
+                # Statistical analysis (always available)
                 st.markdown("### 📊 Statistical Summary")
                 self._render_statistical_analysis(df)
-                
                 st.markdown("---")
                 
                 # Regional analysis
-                if 'ocean_region' in df.columns:
+                if has_regional:
                     st.markdown("### 🗺️ Regional Distribution")
                     self._render_regional_analysis(df)
+                elif has_geographic:
+                    st.markdown("### 🗺️ Geographic Distribution")
+                    st.write(f"**Latitude Range:** {df['latitude'].min():.2f}° to {df['latitude'].max():.2f}°")
+                    st.write(f"**Longitude Range:** {df['longitude'].min():.2f}° to {df['longitude'].max():.2f}°")
+                
+                # Data quality indicators
+                st.markdown("---")
+                st.markdown("### ✅ Data Quality")
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    completeness = (1 - df.isnull().sum().sum() / (len(df) * len(df.columns))) * 100
+                    st.metric("Data Completeness", f"{completeness:.1f}%")
+                
+                with col2:
+                    if 'qc_flag' in df.columns:
+                        good_quality = (df['qc_flag'] == 1).sum() / len(df) * 100
+                        st.metric("Good Quality Data", f"{good_quality:.1f}%")
+                    else:
+                        st.metric("QC Flags", "N/A")
+                
+                with col3:
+                    st.metric("Record Count", f"{len(df):,}")
+                    
             else:
                 st.info("🔍 No data to display. Run a query in the Chat tab first.")
         else:
@@ -801,12 +1078,37 @@ class ProductionFloatChatApp:
         st.plotly_chart(fig, use_container_width=True)
     
     def _render_statistical_analysis(self, df: pd.DataFrame):
-        """Statistical summary"""
+        """Statistical summary - enhanced with context"""
         numeric_cols = df.select_dtypes(include=['float64', 'int64']).columns
         
         if len(numeric_cols) > 0:
+            # Show detailed statistics with higher precision
             stats_df = df[numeric_cols].describe().T
-            st.dataframe(stats_df.style.format("{:.2f}"), use_container_width=True)
+            
+            # Add additional statistics
+            stats_df['range'] = stats_df['max'] - stats_df['min']
+            stats_df['median'] = df[numeric_cols].median()
+            
+            # Format with appropriate precision
+            st.markdown("#### 📊 Detailed Statistics")
+            st.dataframe(
+                stats_df.style.format("{:.4f}"),  # Higher precision
+                use_container_width=True
+            )
+            
+            # Show column-wise insights
+            st.markdown("#### 🔍 Key Insights")
+            cols = st.columns(min(3, len(numeric_cols)))
+            
+            for idx, col in enumerate(numeric_cols[:3]):
+                with cols[idx]:
+                    st.markdown(f"**{col.replace('_', ' ').title()}**")
+                    st.write(f"Min: {df[col].min():.4f}")
+                    st.write(f"Max: {df[col].max():.4f}")
+                    st.write(f"Mean: {df[col].mean():.4f}")
+                    st.write(f"Std: {df[col].std():.4f}")
+        else:
+            st.info("No numeric columns available for statistical analysis.")
     
     def _render_regional_analysis(self, df: pd.DataFrame):
         """Regional distribution analysis"""
@@ -897,60 +1199,114 @@ class ProductionFloatChatApp:
     #         self._render_empty_state("export")
     
     def _render_combined_maps_tab(self):
-        """Combined Maps tab with Plotly and Leaflet toggle"""
+        """Combined Maps tab with Plotly and Leaflet toggle - QUERY AWARE"""
         st.subheader("🗺️ Maps & Geographic Locations")
         
-        # Map type selector at the top
-        col1, col2, col3 = st.columns([2, 3, 2])
-        with col2:
-            map_type = st.radio(
-                "Select Map Type",
-                ["📊 Plotly Interactive", "🗺️ Leaflet Classic"],
-                horizontal=True,
-                help="Choose between Plotly (interactive) or Leaflet (classic) map visualization"
-            )
-        
-        st.markdown("---")
-        
-        # Render the selected map
-        if "Plotly" in map_type:
-            self._render_map_tab()
+        # Check if we have query results
+        if st.session_state.get('last_query_results') is not None:
+            results = st.session_state.last_query_results
+            
+            if results.get('success') and results.get('results') is not None and not results['results'].empty:
+                df = results['results']
+                query_text = results.get('query', 'Your query')
+                
+                # Show query context
+                st.info(f"🗺️ **Showing map for:** {query_text}")
+                st.caption(f"📊 {len(df)} data points from your query")
+                
+                # Check for geographic data
+                if 'latitude' not in df.columns or 'longitude' not in df.columns:
+                    st.warning("⚠️ **Map visualization not available**")
+                    st.info("This query returned data without geographic coordinates (latitude/longitude).")
+                    st.markdown("**Available columns:** " + ", ".join(df.columns.tolist()))
+                    
+                    # Show data table instead
+                    st.markdown("### 📋 Query Results")
+                    st.dataframe(df, use_container_width=True)
+                    return
+                
+                # Map type selector
+                col1, col2, col3 = st.columns([2, 3, 2])
+                with col2:
+                    map_type = st.radio(
+                        "Select Map Type",
+                        ["📊 Plotly Interactive", "🗺️ Leaflet Classic"],
+                        horizontal=True,
+                        help="Choose between Plotly (interactive) or Leaflet (classic) map visualization"
+                    )
+                
+                st.markdown("---")
+                
+                # Render the selected map
+                if "Plotly" in map_type:
+                    self._render_map_tab()
+                else:
+                    self._render_leaflet_map_tab()
+            else:
+                st.info("🔍 No data to display. Run a query in the Chat tab first.")
         else:
-            self._render_leaflet_map_tab()
+            self._render_empty_state("map")
+            st.info("💡 **Tip:** Ask a question in the Chat tab to see geographic data on the map!")
     
     def _render_combined_analysis_tab(self):
         """Combined Analysis tab with Profile, Advanced Viz, and Analytics"""
         st.subheader("📊 Analysis & Visualizations")
         
-        # Analysis type selector
-        analysis_type = st.selectbox(
-            "Select Analysis Type",
-            [
-                "📊 Profile Analysis (Temperature/Salinity)",
-                "🔬 Advanced Visualizations",
-                "📈 Data Analytics & Statistics"
-            ],
-            help="Choose the type of analysis you want to perform"
-        )
-        
-        st.markdown("---")
-        
-        # Render the selected analysis
-        if "Profile" in analysis_type:
-            self._render_profile_tab()
-        elif "Advanced" in analysis_type:
-            self._render_advanced_viz_tab()
+        # Check if we have query results
+        if st.session_state.get('last_query_results') is not None:
+            results = st.session_state.last_query_results
+            
+            # Show query context
+            if results.get('query'):
+                st.info(f"📊 **Showing visualizations for:** {results['query']}")
+                
+                # Show timestamp if available
+                if results.get('timestamp'):
+                    from datetime import datetime
+                    query_time = datetime.fromisoformat(results['timestamp'])
+                    st.caption(f"Query executed: {query_time.strftime('%Y-%m-%d %H:%M:%S')}")
+            
+            # Smart analysis type selection based on query metadata
+            available_analyses = []
+            
+            if results.get('has_profile', False):
+                available_analyses.append("📊 Profile Analysis (Temperature/Salinity)")
+            
+            available_analyses.append("🔬 Advanced Visualizations")
+            available_analyses.append("📈 Data Analytics & Statistics")
+            
+            # Analysis type selector
+            analysis_type = st.selectbox(
+                "Select Analysis Type",
+                available_analyses,
+                help="Choose the type of analysis you want to perform"
+            )
+            
+            st.markdown("---")
+            
+            # Render the selected analysis
+            if "Profile" in analysis_type:
+                self._render_profile_tab()
+            elif "Advanced" in analysis_type:
+                self._render_advanced_viz_tab()
+            else:
+                self._render_analytics_tab()
         else:
-            self._render_analytics_tab()
+            self._render_empty_state("analysis")
     
     def _render_export_tab(self):
-        """Export and reporting - ENHANCED with NetCDF"""
+        """Export and reporting - ENHANCED with NetCDF and query context"""
         st.subheader("📥 Export Data & Generate Reports")
         
         if st.session_state.get('last_query_results') is not None:
             results = st.session_state.last_query_results
             if results['success'] and not results['results'].empty:
                 df = results['results']
+                query_text = results.get('query', 'Your query')
+                
+                # Show query context
+                st.info(f"📥 **Exporting data for:** {query_text}")
+                st.caption(f"📊 {len(df)} records × {len(df.columns)} columns ready for export")
                 
                 st.markdown("### 💾 Download Options")
                 

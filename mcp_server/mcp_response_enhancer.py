@@ -89,11 +89,17 @@ Depth Range: {depth_min:.1f} to {depth_max:.1f} dbar
         # Add water mass data
         if 'identify_water_masses' in tool_results:
             wm_data = self._extract_tool_data(tool_results['identify_water_masses'])
-            if wm_data and 'water_masses' in wm_data:
-                wm_text = self._format_water_masses(wm_data['water_masses'])
-                enhanced += "\n\n" + self.enhancement_templates['water_mass'].format(
-                    water_masses=wm_text
-                )
+            if wm_data:
+                # Check if water_masses key exists or if it's a success response
+                if 'water_masses' in wm_data and wm_data.get('water_masses_detected', 0) > 0:
+                    wm_text = self._format_water_masses(wm_data)
+                    enhanced += "\n\n" + self.enhancement_templates['water_mass'].format(
+                        water_masses=wm_text
+                    )
+                elif wm_data.get('success') is False:
+                    # Add error explanation if water mass identification failed
+                    error_msg = wm_data.get('error', 'Water mass identification failed')
+                    enhanced += f"\n\n**Note:** {error_msg}"
         
         # Add temporal trend data
         if 'analyze_temporal_trends' in tool_results:
@@ -143,17 +149,36 @@ Depth Range: {depth_min:.1f} to {depth_max:.1f} dbar
         except:
             return None
     
-    def _format_water_masses(self, water_masses: List[Dict]) -> str:
+    def _format_water_masses(self, water_masses_data: Dict) -> str:
         """Format water mass list"""
+        # Handle both list format and dict format
+        if isinstance(water_masses_data, dict):
+            water_masses = water_masses_data.get('water_masses', [])
+        else:
+            water_masses = water_masses_data
+            
         if not water_masses:
             return "No distinct water masses identified."
         
         formatted = []
         for wm in water_masses:
+            # Handle different key names (backwards compatibility)
+            name = wm.get('name') or wm.get('water_mass', 'Unknown')
+            depth_range = wm.get('depth_range_m') or wm.get('depth_range', (0, 0))
+            count = wm.get('measurements') or wm.get('count', 0)
+            
+            # Add detailed info if available
+            details = []
+            if 'core_temperature_C' in wm:
+                details.append(f"Temp: {wm['core_temperature_C']:.1f}°C")
+            if 'core_salinity_PSU' in wm:
+                details.append(f"Sal: {wm['core_salinity_PSU']:.1f} PSU")
+            
             formatted.append(
-                f"- **{wm['water_mass']}**: "
-                f"Depth {wm['depth_range'][0]:.0f}-{wm['depth_range'][1]:.0f} dbar "
-                f"({wm['count']} measurements)"
+                f"- **{name}**: "
+                f"Depth {depth_range[0]:.0f}-{depth_range[1]:.0f}m "
+                f"({count} measurements)" +
+                (f" - {', '.join(details)}" if details else "")
             )
         
         return "\n".join(formatted)

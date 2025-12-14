@@ -10,7 +10,7 @@ Handles complex oceanographic queries with spatial, temporal, and parameter filt
 import os
 import re
 from typing import Dict, Optional, List, Tuple
-from langchain_google_genai import ChatGoogleGenerativeAI
+from groq import Groq
 from langchain_core.prompts import PromptTemplate
 from dotenv import load_dotenv
 import logging
@@ -117,14 +117,9 @@ class EnhancedSQLGenerator:
     }
     
     def __init__(self):
-        """Initialize SQL generator with LLM"""
-        self.llm = ChatGoogleGenerativeAI(
-            model=os.getenv('GOOGLE_MODEL', 'gemini-2.5-flash'),
-            temperature=0.0,  # Deterministic for SQL
-            google_api_key=os.getenv('GOOGLE_API_KEY'),
-            timeout=30,
-            max_retries=2
-        )
+        """Initialize SQL generator with Groq"""
+        self.client = Groq(api_key=os.getenv('GROQ_API_KEY'))
+        self.model = "llama-3.3-70b-versatile"
         
         self.prompt_template = self._create_enhanced_prompt()
         
@@ -139,7 +134,7 @@ class EnhancedSQLGenerator:
             'avg_complexity': 0
         }
         
-        logger.info("✅ Enhanced SQL Generator initialized")
+        logger.info("✅ Enhanced SQL Generator initialized with Groq")
     
     def _create_enhanced_prompt(self) -> PromptTemplate:
         """Create comprehensive SQL generation prompt"""
@@ -185,8 +180,14 @@ CRITICAL SQL GENERATION RULES:
 
 4. TEMPORAL QUERIES:
    - Recent data: timestamp >= CURRENT_DATE - INTERVAL 'X days/months'
-   - Specific date: timestamp >= 'YYYY-MM-DD' AND timestamp <= 'YYYY-MM-DD'
+   - Specific date: timestamp::date = 'YYYY-MM-DD' for exact date match
+   - Specific datetime: timestamp >= 'YYYY-MM-DD HH:MM' AND timestamp <= 'YYYY-MM-DD HH:MM+1 hour'
+   - Date range: timestamp BETWEEN 'YYYY-MM-DD' AND 'YYYY-MM-DD'
    - Current month: DATE_TRUNC('month', timestamp) = DATE_TRUNC('month', CURRENT_DATE)
+   - For queries like "What was temperature on October 7, 2025 at 20:50?":
+     * Use timestamp::date = '2025-10-07' OR
+     * Use timestamp >= '2025-10-07 20:00' AND timestamp <= '2025-10-07 21:00' (1-hour window)
+   - If exact time not found, search within same day or nearby hours
 
 5. DEPTH QUERIES:
    - Surface layer: pressure <= 10
@@ -393,8 +394,22 @@ RESPOND WITH ONLY THE SQL QUERY (ONE STATEMENT, NO EXPLANATIONS):"""
             
             # Generate SQL
             logger.info(f"🔧 Generating SQL for: {user_query[:50]}...")
-            response = self.llm.invoke(formatted_prompt)
-            sql = self._clean_sql(response.content)
+            
+            completion = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": formatted_prompt
+                    }
+                ],
+                temperature=0.0,
+                max_completion_tokens=1024,
+                top_p=1,
+                stream=False,
+                stop=None
+            )
+            sql = self._clean_sql(completion.choices[0].message.content)
             
             # Validate and optimize
             if not self.validate_sql(sql):
@@ -474,7 +489,7 @@ RESPOND WITH ONLY THE SQL QUERY (ONE STATEMENT, NO EXPLANATIONS):"""
             if any(kw in query_lower for kw in keywords):
                 analysis['parameters'].append(param)
         
-        # Detect time period
+        # Detect time period with specific date/time support
         time_keywords = {
             'recent': 'Last 30 days',
             'last month': 'Last 30 days',
@@ -486,10 +501,57 @@ RESPOND WITH ONLY THE SQL QUERY (ONE STATEMENT, NO EXPLANATIONS):"""
             'november': 'November'
         }
         
-        for keyword, period in time_keywords.items():
-            if keyword in query_lower:
-                analysis['time_period'] = period
-                break
+        # Check for specific dates first (e.g., "October 7, 2025" or "7 October 2025" or "2025-10-07")
+        import re
+        from datetime import datetime
+        
+        # Pattern 1: "October 7, 2025" or "Oct 7, 2025"
+        date_pattern1 = r'(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\s+(\d{1,2}),?\s+(\d{4})'
+        match1 = re.search(date_pattern1, query_lower)
+        
+        # Pattern 2: "7 October 2025"
+        date_pattern2 = r'(\d{1,2})\s+(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec),?\s+(\d{4})'
+        match2 = re.search(date_pattern2, query_lower)
+        
+        # Pattern 3: "2025-10-07" or "2025/10/07"
+        date_pattern3 = r'(\d{4})[-/](\d{1,2})[-/](\d{1,2})'
+        match3 = re.search(date_pattern3, query_lower)
+        
+        # Pattern 4: Time pattern "20:50" or "8:50 PM"
+        time_pattern = r'(\d{1,2}):(\d{2})\s*(am|pm)?'
+        time_match = re.search(time_pattern, query_lower)
+        
+        specific_datetime = None
+        if match1:
+            month_name, day, year = match1.groups()
+            specific_datetime = f"{month_name} {day}, {year}"
+            if time_match:
+                hour, minute = time_match.groups()[:2]
+                specific_datetime += f" at {hour}:{minute}"
+            analysis['time_period'] = specific_datetime
+            analysis['has_specific_datetime'] = True
+        elif match2:
+            day, month_name, year = match2.groups()
+            specific_datetime = f"{month_name} {day}, {year}"
+            if time_match:
+                hour, minute = time_match.groups()[:2]
+                specific_datetime += f" at {hour}:{minute}"
+            analysis['time_period'] = specific_datetime
+            analysis['has_specific_datetime'] = True
+        elif match3:
+            year, month, day = match3.groups()
+            specific_datetime = f"{year}-{month}-{day}"
+            if time_match:
+                hour, minute = time_match.groups()[:2]
+                specific_datetime += f" {hour}:{minute}"
+            analysis['time_period'] = specific_datetime
+            analysis['has_specific_datetime'] = True
+        else:
+            # Fall back to general keywords
+            for keyword, period in time_keywords.items():
+                if keyword in query_lower:
+                    analysis['time_period'] = period
+                    break
         
         # Calculate complexity
         complexity = 1
@@ -762,8 +824,21 @@ Focus on:
 
 Keep it concise and scientific."""
             
-            response = self.llm.invoke(prompt)
-            return response.content
+            completion = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                temperature=0.7,
+                max_completion_tokens=1024,
+                top_p=1,
+                stream=False,
+                stop=None
+            )
+            return completion.choices[0].message.content
         except:
             return "Query explanation unavailable."
     

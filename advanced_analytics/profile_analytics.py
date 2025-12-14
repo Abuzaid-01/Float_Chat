@@ -322,17 +322,27 @@ class AdvancedProfileAnalytics:
         df.loc[mask, 'temp_gradient'] = np.abs(temp_diff[mask] / pressure_diff[mask])
         df.loc[~mask, 'temp_gradient'] = 0
         
+        # Replace NaN with 0
+        df['temp_gradient'] = df['temp_gradient'].fillna(0)
+        
         # Smooth gradient using rolling window
         df['temp_gradient_smooth'] = df['temp_gradient'].rolling(
             window=3, center=True, min_periods=1
-        ).mean()
+        ).mean().fillna(0)
         
         # Method 1: Maximum gradient method
         middle_idx = df.iloc[2:-2]  # Exclude surface and bottom
         if len(middle_idx) == 0:
             return {'success': False, 'error': 'Insufficient middle layer data'}
         
+        # Check if we have valid gradient values
+        if middle_idx['temp_gradient_smooth'].max() == 0:
+            return {'success': False, 'error': 'No temperature gradient detected in data'}
+        
         max_grad_idx = middle_idx['temp_gradient_smooth'].idxmax()
+        if pd.isna(max_grad_idx):
+            return {'success': False, 'error': 'Could not determine thermocline location'}
+            
         thermocline_depth = df.loc[max_grad_idx, 'pressure']
         thermocline_strength = df.loc[max_grad_idx, 'temp_gradient_smooth']
         

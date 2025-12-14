@@ -21,28 +21,60 @@ class DataDashboard:
     def render(self):
         """Render the complete dashboard"""
         
-        # Header with gradient
-        st.markdown("""
-            <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                        padding: 2rem; 
-                        border-radius: 12px; 
-                        margin-bottom: 2rem;
-                        text-align: center;'>
-                <h1 style='color: white; margin: 0; font-weight: 800;'>
-                    📊 ARGO Data Dashboard
-                </h1>
-                <p style='color: #e0e7ff; margin-top: 0.5rem; font-size: 1.1rem;'>
-                    Real-time overview of available oceanographic data
-                </p>
-            </div>
-        """, unsafe_allow_html=True)
+        # CHECK IF WE HAVE QUERY RESULTS FIRST
+        query_results = st.session_state.get('last_query_results')
+        using_query_data = False
         
-        # Load data statistics
-        with st.spinner("Loading dashboard data..."):
-            stats = self._get_database_statistics()
+        if query_results and query_results.get('success') and not query_results['results'].empty:
+            # USE QUERY RESULTS
+            using_query_data = True
+            df = query_results['results']
+            query_text = query_results.get('query', 'your query')
+            
+            # Header for query results
+            st.markdown(f"""
+                <div style='background: linear-gradient(135deg, #10b981 0%, #059669 100%); 
+                            padding: 2rem; 
+                            border-radius: 12px; 
+                            margin-bottom: 2rem;
+                            text-align: center;'>
+                    <h1 style='color: white; margin: 0; font-weight: 800;'>
+                        📊 Query Results Dashboard
+                    </h1>
+                    <p style='color: #d1fae5; margin-top: 0.5rem; font-size: 1.1rem;'>
+                        Showing results for: <strong>{query_text}</strong>
+                    </p>
+                    <p style='color: #d1fae5; margin-top: 0.3rem; font-size: 0.9rem;'>
+                        {len(df)} records retrieved
+                    </p>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            # Generate statistics from query results
+            stats = self._get_dataframe_statistics(df)
+        else:
+            # USE DATABASE STATISTICS (fallback)
+            st.markdown("""
+                <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                            padding: 2rem; 
+                            border-radius: 12px; 
+                            margin-bottom: 2rem;
+                            text-align: center;'>
+                    <h1 style='color: white; margin: 0; font-weight: 800;'>
+                        📊 ARGO Data Dashboard
+                    </h1>
+                    <p style='color: #e0e7ff; margin-top: 0.5rem; font-size: 1.1rem;'>
+                        Complete database overview • Run a query to see specific results
+                    </p>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            # Load data statistics from database
+            with st.spinner("Loading dashboard data..."):
+                stats = self._get_database_statistics()
         
         # Top-level metrics
-        self._render_top_metrics(stats)
+        self._render_top_metrics(stats, using_query_data)
         
         st.markdown("---")
         
@@ -69,6 +101,110 @@ class DataDashboard:
         
         with tab5:
             self._render_top_floats(stats)
+    
+    def _get_dataframe_statistics(self, df: pd.DataFrame):
+        """Generate statistics from a DataFrame (query results)"""
+        
+        stats = {
+            'overall': {
+                'total_records': len(df),
+                'unique_floats': df['float_id'].nunique() if 'float_id' in df.columns else 0,
+                'total_cycles': df['cycle_number'].nunique() if 'cycle_number' in df.columns else 0,
+                'earliest_date': df['timestamp'].min() if 'timestamp' in df.columns else None,
+                'latest_date': df['timestamp'].max() if 'timestamp' in df.columns else None,
+                'min_lat': df['latitude'].min() if 'latitude' in df.columns else None,
+                'max_lat': df['latitude'].max() if 'latitude' in df.columns else None,
+                'min_lon': df['longitude'].min() if 'longitude' in df.columns else None,
+                'max_lon': df['longitude'].max() if 'longitude' in df.columns else None,
+                'min_depth': df['pressure'].min() if 'pressure' in df.columns else None,
+                'max_depth': df['pressure'].max() if 'pressure' in df.columns else None,
+                'num_columns': len(df.columns),
+                'min_temp': df['temperature'].min() if 'temperature' in df.columns else None,
+                'max_temp': df['temperature'].max() if 'temperature' in df.columns else None,
+            }
+        }
+        
+        # Regional distribution
+        if all(col in df.columns for col in ['latitude', 'longitude', 'temperature', 'salinity']):
+            def classify_region(row):
+                lat, lon = row['latitude'], row['longitude']
+                if 5 <= lat <= 30 and 40 <= lon <= 80:
+                    return 'Arabian Sea'
+                elif -50 <= lat <= -10 and 20 <= lon <= 120:
+                    return 'Southern Indian Ocean'
+                elif 5 <= lat <= 25 and 80 <= lon <= 100:
+                    return 'Bay of Bengal'
+                elif -10 <= lat <= 5 and 40 <= lon <= 100:
+                    return 'Equatorial Indian Ocean'
+                else:
+                    return 'Other Regions'
+            
+            df_with_region = df.copy()
+            df_with_region['region'] = df_with_region.apply(classify_region, axis=1)
+            
+            regional_stats = df_with_region.groupby('region').agg({
+                'float_id': lambda x: x.nunique() if 'float_id' in df.columns else len(x),
+                'temperature': 'mean',
+                'salinity': 'mean'
+            }).reset_index()
+            regional_stats.columns = ['region', 'float_count', 'avg_temp', 'avg_salinity']
+            regional_stats['record_count'] = df_with_region.groupby('region').size().values
+            
+            stats['regional'] = regional_stats
+        else:
+            stats['regional'] = pd.DataFrame()
+        
+        # Temporal distribution
+        if 'timestamp' in df.columns:
+            df_temp = df.copy()
+            df_temp['timestamp'] = pd.to_datetime(df_temp['timestamp'])
+            df_temp['year_month'] = df_temp['timestamp'].dt.to_period('M').astype(str)
+            
+            temporal_stats = df_temp.groupby('year_month').agg({
+                'float_id': 'nunique' if 'float_id' in df.columns else 'count'
+            }).reset_index()
+            temporal_stats.columns = ['year_month', 'float_count']
+            temporal_stats['record_count'] = df_temp.groupby('year_month').size().values
+            
+            stats['temporal'] = temporal_stats
+        else:
+            stats['temporal'] = pd.DataFrame()
+        
+        # Quality distribution
+        if 'qc_flag' in df.columns:
+            quality_stats = df.groupby('qc_flag').size().reset_index()
+            quality_stats.columns = ['qc_flag', 'record_count']
+            stats['quality'] = quality_stats
+        else:
+            stats['quality'] = pd.DataFrame()
+        
+        # Parameter availability
+        param_stats = []
+        params = ['temperature', 'salinity', 'pressure', 'dissolved_oxygen', 'ph', 'chlorophyll']
+        for param in params:
+            if param in df.columns:
+                available = df[param].notna().sum()
+                param_stats.append({
+                    'parameter': param,
+                    'available_count': available,
+                    'coverage_percent': (available / len(df)) * 100
+                })
+        stats['parameters'] = pd.DataFrame(param_stats)
+        
+        # Top floats
+        if 'float_id' in df.columns:
+            top_floats = df.groupby('float_id').agg({
+                'timestamp': lambda x: pd.to_datetime(x).max() if 'timestamp' in df.columns else None,
+                'pressure': 'max' if 'pressure' in df.columns else 'count'
+            }).reset_index()
+            top_floats.columns = ['float_id', 'last_profile', 'max_depth']
+            top_floats['profile_count'] = df.groupby('float_id').size().values
+            top_floats = top_floats.sort_values('profile_count', ascending=False).head(10)
+            stats['top_floats'] = top_floats
+        else:
+            stats['top_floats'] = pd.DataFrame()
+        
+        return stats
     
     def _get_database_statistics(self):
         """Fetch comprehensive database statistics"""
@@ -201,50 +337,76 @@ class DataDashboard:
             st.error(f"Error loading statistics: {e}")
             return None
     
-    def _render_top_metrics(self, stats):
+    def _render_top_metrics(self, stats, using_query_data=False):
         """Render key metrics at the top"""
         if not stats:
             return
         
-        overall = stats['overall'].iloc[0]
+        overall = stats['overall']
         
-        col1, col2, col3, col4, col5 = st.columns(5)
+        # Add banner if showing query results
+        if using_query_data:
+            st.success("✅ **Showing statistics from your query results** (not the entire database)")
+        
+        st.subheader("📊 Query Results Overview")
+        
+        col1, col2, col3, col4, col5, col6 = st.columns(6)
         
         with col1:
             st.metric(
-                label="📦 Total Records",
+                label="� Total Records",
                 value=f"{overall['total_records']:,}",
-                help="Total measurements in database"
+                help="Records returned by your query"
             )
         
         with col2:
             st.metric(
-                label="🎈 Active Floats",
-                value=f"{overall['unique_floats']:,}",
-                help="Number of unique ARGO floats"
+                label="📋 Columns",
+                value=f"{overall['num_columns']}",
+                help="Number of data columns"
             )
         
         with col3:
-            st.metric(
-                label="🔄 Total Cycles",
-                value=f"{overall['total_cycles']:,}",
-                help="Measurement cycles completed"
-            )
+            if overall['min_temp'] is not None and overall['max_temp'] is not None:
+                st.metric(
+                    label="🌡️ Temperature",
+                    value=f"{overall['min_temp']:.2f}°C - {overall['max_temp']:.2f}°C",
+                    help="Temperature range in results"
+                )
+            else:
+                st.metric(label="🌡️ Temperature", value="N/A")
         
         with col4:
-            days_covered = (overall['latest_date'] - overall['earliest_date']).days
-            st.metric(
-                label="📅 Days Covered",
-                value=f"{days_covered}",
-                help=f"From {overall['earliest_date'].strftime('%Y-%m-%d')} to {overall['latest_date'].strftime('%Y-%m-%d')}"
-            )
+            if overall['earliest_date'] and overall['latest_date']:
+                earliest = pd.to_datetime(overall['earliest_date'])
+                latest = pd.to_datetime(overall['latest_date'])
+                st.metric(
+                    label="📅 Date Range",
+                    value=f"{earliest.strftime('%Y-%m-%d')} to {latest.strftime('%Y-%m-%d')}",
+                    help="Temporal coverage"
+                )
+            else:
+                st.metric(label="📅 Date Range", value="N/A")
         
         with col5:
-            st.metric(
-                label="🌊 Max Depth",
-                value=f"{overall['max_depth']:,.0f} m",
-                help="Maximum measurement depth in meters"
-            )
+            if overall['unique_floats'] > 0:
+                st.metric(
+                    label="🎈 Floats",
+                    value=f"{overall['unique_floats']:,}",
+                    help="Unique floats in results"
+                )
+            else:
+                st.metric(label="🎈 Floats", value="N/A")
+        
+        with col6:
+            if overall['max_depth'] is not None:
+                st.metric(
+                    label="🌊 Max Depth",
+                    value=f"{overall['max_depth']:,.1f} dbar",
+                    help="Maximum pressure/depth"
+                )
+            else:
+                st.metric(label="🌊 Max Depth", value="N/A")
     
     def _render_regional_distribution(self, stats):
         """Render regional distribution charts"""

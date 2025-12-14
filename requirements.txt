@@ -135,12 +135,14 @@ folium>=0.15.1
 streamlit-folium>=0.17.0
 matplotlib>=3.8.0
 
-# LLM & AI - Updated for compatibility
+# LLM & AI - Updated for Groq
 langchain>=0.1.9
 langchain-community>=0.0.24
 langchain-core>=0.1.26  # Fixed: Compatible with langchain 0.1.9
-langchain-google-genai>=2.0.10
-google-generativeai>=0.8.5
+groq>=0.4.1  # Groq API client
+# Legacy Google AI (disabled)
+# langchain-google-genai>=2.0.10
+# google-generativeai>=0.8.5
 
 # Database - Fixed for Python 3.13
 sqlalchemy>=2.0.27

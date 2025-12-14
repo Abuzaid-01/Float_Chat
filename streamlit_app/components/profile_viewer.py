@@ -95,8 +95,8 @@ class ProfileViewer:
         # Display plot
         st.plotly_chart(fig, use_container_width=True)
         
-        # Display profile statistics
-        self._display_profile_stats(df)
+        # Profile statistics are rendered by app.py to avoid duplication
+        # self._display_profile_stats(df)  # DISABLED - handled by app.py
     
     def _display_profile_stats(self, df: pd.DataFrame):
         """Display profile statistics"""

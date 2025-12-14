@@ -261,7 +261,7 @@
 
 import os
 from typing import Dict
-from langchain_google_genai import ChatGoogleGenerativeAI
+from groq import Groq
 from langchain_core.prompts import PromptTemplate
 import pandas as pd
 import re
@@ -269,20 +269,15 @@ import re
 
 class ResponseGenerator:
     """
-    Generate natural language responses using Gemini.
+    Generate natural language responses using Groq (Llama 3.3).
     Enhanced with natural, ChatGPT-like tone.
     """
     
     def __init__(self):
-        self.llm = ChatGoogleGenerativeAI(
-            model=os.getenv('GEMINI_MODEL', 'gemini-2.5-flash'),
-            temperature=0.7,
-            google_api_key=os.getenv('GOOGLE_API_KEY'),
-            timeout=30,
-            max_retries=2
-        )
+        self.client = Groq(api_key=os.getenv('GROQ_API_KEY'))
+        self.model = os.getenv('GROQ_MODEL', 'llama-3.3-70b-versatile')
         
-        print(f"✅ Response Generator using: {os.getenv('GEMINI_MODEL', 'gemini-2.5-flash')}")
+        print(f"✅ Response Generator using: {self.model}")
         
         # Enhanced prompt template with natural tone
         self.prompt_template = PromptTemplate(
@@ -336,6 +331,17 @@ class ResponseGenerator:
 - Just present the summary stats
 - Skip per-record tables (they don't make sense for aggregated data)
 - Example: "Based on 1.2M records across 668 floats, the average temperature is X°C"
+
+**For Water Mass Identification Queries:**
+- Check if query_results contains "water_masses" key with list of identified masses
+- If water masses are identified, list EACH water mass separately with its properties:
+  * Water mass name (e.g., "Arabian Sea High Salinity Water (ASHSW)")
+  * Depth range
+  * Temperature and salinity characteristics
+  * Thermocline properties for each mass
+- DO NOT say "can't identify water masses" if the data contains identified water masses
+- Present each water mass as a distinct entity with its own characteristics
+- If no water masses identified, explain why (e.g., "insufficient salinity data")
 
 ---
 
@@ -433,8 +439,22 @@ Use the data in {query_results} and match the tone to the {query_type} query typ
             )
             
             print(f"🎭 Generating {query_type} response...")
-            response = self.llm.invoke(formatted_prompt)
-            return response.content
+            
+            completion = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": formatted_prompt
+                    }
+                ],
+                temperature=0.7,
+                max_completion_tokens=1024,
+                top_p=1,
+                stream=False,
+                stop=None
+            )
+            return completion.choices[0].message.content
             
         except Exception as e:
             # Fallback response
@@ -488,6 +508,35 @@ Use the data in {query_results} and match the tone to the {query_type} query typ
             response += f"\n\n... and {count - 10} more records."
         
         return response
+    
+    def invoke(self, prompt: str):
+        """
+        Compatibility method for direct LLM invocation (used by MCP query processor).
+        Returns an object with a 'content' attribute for backward compatibility.
+        """
+        class ResponseWrapper:
+            def __init__(self, content):
+                self.content = content
+        
+        try:
+            completion = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                temperature=0.7,
+                max_completion_tokens=1024,
+                top_p=1,
+                stream=False,
+                stop=None
+            )
+            return ResponseWrapper(completion.choices[0].message.content)
+        except Exception as e:
+            print(f"⚠️  Error in invoke: {e}")
+            return ResponseWrapper(f"Error generating response: {str(e)}")
     
     def _format_results(self, results: pd.DataFrame) -> str:
         """Format results for LLM consumption"""
