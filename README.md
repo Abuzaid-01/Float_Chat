@@ -6,8 +6,6 @@
 [![FAISS](https://img.shields.io/badge/FAISS-Vector%20Store-green.svg)](https://github.com/facebookresearch/faiss)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**SIH 2025 - Problem Statement #25040**  
-*Ministry of Earth Sciences (MoES) | Indian National Centre for Ocean Information Services (INCOIS)*
 
 ---
 
