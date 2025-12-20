@@ -4,6 +4,7 @@ Routes queries based on user intent, making the chatbot more human-like and inte
 """
 
 import os
+import re
 from groq import Groq
 from typing import Dict, List
 import json
@@ -16,20 +17,28 @@ class IntentClassifier:
     """
     
     def __init__(self):
-        self.client = Groq(api_key=os.getenv('GROQ_API_KEY'))
+        # Note: Don't hard-require GROQ_API_KEY at import time.
+        # Many paths (keyword intent match) don't need the LLM at all.
+        # We'll initialize the Groq client lazily only when needed.
+        self.client = None
         self.model = os.getenv('GROQ_MODEL', 'llama-3.3-70b-versatile')
         
         # Define intent categories
         self.intents = {
             'developer_info': {
                 'keywords': ['who built', 'who created', 'who made', 'who developed', 'developer', 
-                           'creator', 'author', 'who are you', 'your creator', 'your developer',
+                           'creator', 'author', 'your creator', 'your developer',
                            'built by', 'created by', 'made by', 'developed by', 'whi built'],
                 'response_template': self._get_developer_info
             },
+            'assistant_identity': {
+                'keywords': ['who are you', 'what are you', 'what is your name', 'tell me about you',
+                           'introduce yourself', 'who r u'],
+                'response_template': self._get_assistant_identity
+            },
             'greeting': {
                 'keywords': ['hello', 'hi', 'hey', 'greetings', 'good morning', 'good afternoon', 
-                           'good evening', 'howdy', 'sup', 'what\'s up'],
+                           'good evening', 'howdy', 'sup'],
                 'response_template': self._get_greeting
             },
             'help': {
@@ -43,7 +52,8 @@ class IntentClassifier:
             },
             'about_floatchat': {
                 'keywords': ['what is floatchat', 'about floatchat', 'what does floatchat do',
-                           'purpose of floatchat', 'what is this app', 'about this app'],
+                           'purpose of floatchat', 'what is this app', 'about this app',
+                           'tell me about this app'],
                 'response_template': self._get_about_floatchat
             },
             'data_query': {
@@ -53,6 +63,21 @@ class IntentClassifier:
         }
         
         print("✅ Intent Classifier initialized")
+
+    def _get_llm_client(self) -> Groq:
+        """Lazily create Groq client only when needed."""
+        if self.client is not None:
+            return self.client
+
+        api_key = os.getenv('GROQ_API_KEY')
+        if not api_key:
+            raise RuntimeError(
+                "GROQ_API_KEY is not set. LLM-based intent classification can't run, "
+                "but keyword-based routing still works."
+            )
+
+        self.client = Groq(api_key=api_key)
+        return self.client
     
     def classify_intent(self, user_query: str, conversation_history: List[Dict] = None) -> Dict:
         """
@@ -102,10 +127,42 @@ class IntentClassifier:
                 'requires_data_query': True,
                 'direct_response': None
             }
+
+        # Prefer explicit conversational/meta intents before generic data keyword routing.
+        # This prevents questions like "what is FloatChat?" from being treated as a data query.
+        for intent_name, intent_data in self.intents.items():
+            if intent_name == 'data_query':
+                continue
+
+            for keyword in intent_data['keywords']:
+                keyword = keyword.lower().strip()
+                if not keyword:
+                    continue
+
+                # Prevent false matches like "hi" in "this".
+                if len(keyword) <= 3:
+                    if re.search(rf"\b{re.escape(keyword)}\b", user_query_lower):
+                        direct_response = intent_data['response_template']()
+                        return {
+                            'intent': intent_name,
+                            'confidence': 0.95,
+                            'requires_data_query': False,
+                            'direct_response': direct_response
+                        }
+                    continue
+
+                if keyword in user_query_lower:
+                    direct_response = intent_data['response_template']()
+                    return {
+                        'intent': intent_name,
+                        'confidence': 0.95,
+                        'requires_data_query': False,
+                        'direct_response': direct_response
+                    }
         
         # Force route data-specific questions to data pipeline
-        data_keywords = ['dataset', 'data range', 'date range', 'from which date', 
-                        'temperature', 'salinity', 'pressure', 'float', 'ocean',
+        data_keywords = ['dataset', 'data range', 'date range', 'from which date',
+                        'temperature', 'salinity', 'pressure', 'float',
                         'arabian sea', 'bay of bengal', 'measurements', 'records',
                         'when was data collected', 'time period', 'coverage', 'show']
         
@@ -118,23 +175,7 @@ class IntentClassifier:
                 'direct_response': None
             }
         
-        # Quick keyword-based classification for common intents
-        for intent_name, intent_data in self.intents.items():
-            if intent_name == 'data_query':
-                continue
-            
-            for keyword in intent_data['keywords']:
-                if keyword in user_query_lower:
-                    # Found a match, get direct response
-                    direct_response = intent_data['response_template']()
-                    return {
-                        'intent': intent_name,
-                        'confidence': 0.95,
-                        'requires_data_query': False,
-                        'direct_response': direct_response
-                    }
-        
-        # Use LLM for more nuanced intent classification
+    # Use LLM for more nuanced intent classification
         llm_intent = self._classify_with_llm(user_query)
         
         if llm_intent['intent'] != 'data_query':
@@ -181,7 +222,8 @@ Respond ONLY with a JSON object in this format:
 JSON Response:"""
 
         try:
-            completion = self.client.chat.completions.create(
+            client = self._get_llm_client()
+            completion = client.chat.completions.create(
                 model=self.model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1,  # Low temperature for consistent classification
@@ -211,26 +253,26 @@ JSON Response:"""
     
     def _get_developer_info(self) -> str:
         """Developer information response"""
-        return """👨‍💻 **Meet the Developer**
+        return """👨‍💻 Built by Abuzaid
 
-This FloatChat application was built by **Abuzaid** - a passionate developer creating innovative solutions for oceanographic data analysis.
+FloatChat was created by **Abuzaid**.
 
-### 🔗 **Connect with Abuzaid:**
+- LinkedIn: https://www.linkedin.com/in/abuzaid01
+- GitHub: https://github.com/Abuzaid-01
 
-- 💼 **LinkedIn**: [www.linkedin.com/in/abuzaid01](https://www.linkedin.com/in/abuzaid01)
-- 💻 **GitHub**: [github.com/Abuzaid-01](https://github.com/Abuzaid-01)
+If you want, tell me what you’re trying to do (research, class project, dashboard), and I’ll point you to the best features."""
 
-Feel free to connect for collaborations, questions, or feedback! 🚀
+    def _get_assistant_identity(self) -> str:
+        """Assistant identity response (who am I?)"""
+        return """I’m **FloatChat** — an AI assistant inside this app.
 
----
+My job is to help you explore **ARGO float ocean data** by chatting in normal language. You can ask for:
+- Maps (where floats are)
+- Profiles (temperature/salinity vs depth)
+- Comparisons (region to region, time to time)
+- Quick explanations of ocean terms
 
-**FloatChat** is an AI-powered platform for exploring ARGO ocean data, featuring:
-- 🤖 Natural language queries with MCP (Model Context Protocol)
-- 📊 Advanced oceanographic analytics
-- 🗺️ Interactive visualizations
-- ⚡ Real-time data exploration
-
-Built with ❤️ for the oceanographic research community."""
+If you tell me what you’re curious about (a region, date range, float ID, or a parameter), I’ll guide you to the right analysis and visuals."""
 
     def _get_greeting(self) -> str:
         """Greeting response"""

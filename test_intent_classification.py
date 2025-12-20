@@ -26,6 +26,10 @@ def test_intent_classification():
         ("whi built this app?", "developer_info"),  # Typo handling
         ("who is the creator?", "developer_info"),
         ("who developed floatchat?", "developer_info"),
+
+    # Assistant identity queries
+    ("who are you?", "assistant_identity"),
+    ("what are you?", "assistant_identity"),
         
         # Greetings
         ("hello", "greeting"),
