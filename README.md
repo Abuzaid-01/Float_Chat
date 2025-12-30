@@ -698,7 +698,8 @@ mindmap
 
 ---
 
-**Built with ❤️ for Ministry of Earth Sciences | INCOIS**
+**Built with ❤️ by Abuzaid
+
 
 ---
 
