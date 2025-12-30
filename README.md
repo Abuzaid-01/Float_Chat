@@ -1,8 +1,9 @@
 # 🌊 FloatChat - Complete Project Architecture
 
 > **AI-Powered Conversational Interface for ARGO Ocean Data Analysis**  
-> Ministry of Earth Sciences | INCOIS
+**🚀 [Live Demo](https://floatchat-chat.streamlit.app/)** | **📂 [GitHub Repository](https://github.com/Abuzaid-01/Float_Chat)**
 
+---
 ---
 
 ## 📋 Table of Contents
