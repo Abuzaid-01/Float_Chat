@@ -350,63 +350,137 @@ class DataDashboard:
         
         st.subheader("📊 Query Results Overview")
         
-        col1, col2, col3, col4, col5, col6 = st.columns(6)
+        # Custom CSS for better metric display - prevents truncation
+        st.markdown("""
+            <style>
+            .custom-metric {
+                background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+                border: 1px solid #e2e8f0;
+                border-radius: 12px;
+                padding: 1.2rem 0.8rem;
+                text-align: center;
+                box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+                margin-bottom: 1rem;
+                min-height: 110px;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                transition: transform 0.2s, box-shadow 0.2s;
+            }
+            .custom-metric:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+            }
+            .metric-label {
+                font-size: 0.8rem;
+                color: #64748b;
+                font-weight: 600;
+                margin-bottom: 0.5rem;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }
+            .metric-value {
+                font-size: 1.1rem;
+                font-weight: 700;
+                color: #0f172a;
+                line-height: 1.3;
+                word-wrap: break-word;
+                overflow-wrap: break-word;
+                white-space: normal;
+            }
+            .metric-icon {
+                font-size: 1.4rem;
+                margin-bottom: 0.3rem;
+            }
+            @media (max-width: 768px) {
+                .custom-metric {
+                    min-height: 95px;
+                    padding: 1rem 0.6rem;
+                }
+                .metric-value {
+                    font-size: 1rem;
+                }
+            }
+            </style>
+        """, unsafe_allow_html=True)
+        
+        # First row - 3 columns for better spacing
+        col1, col2, col3 = st.columns(3)
         
         with col1:
-            st.metric(
-                label="� Total Records",
-                value=f"{overall['total_records']:,}",
-                help="Records returned by your query"
-            )
+            st.markdown(f"""
+                <div class="custom-metric">
+                    <div class="metric-icon">📊</div>
+                    <div class="metric-label">Total Records</div>
+                    <div class="metric-value">{overall['total_records']:,}</div>
+                </div>
+            """, unsafe_allow_html=True)
         
         with col2:
-            st.metric(
-                label="📋 Columns",
-                value=f"{overall['num_columns']}",
-                help="Number of data columns"
-            )
+            st.markdown(f"""
+                <div class="custom-metric">
+                    <div class="metric-icon">📋</div>
+                    <div class="metric-label">Data Columns</div>
+                    <div class="metric-value">{overall['num_columns']}</div>
+                </div>
+            """, unsafe_allow_html=True)
         
         with col3:
-            if overall['min_temp'] is not None and overall['max_temp'] is not None:
-                st.metric(
-                    label="🌡️ Temperature",
-                    value=f"{overall['min_temp']:.2f}°C - {overall['max_temp']:.2f}°C",
-                    help="Temperature range in results"
-                )
+            if overall['unique_floats'] > 0:
+                float_value = f"{overall['unique_floats']:,}"
             else:
-                st.metric(label="🌡️ Temperature", value="N/A")
+                float_value = "N/A"
+            st.markdown(f"""
+                <div class="custom-metric">
+                    <div class="metric-icon">🎈</div>
+                    <div class="metric-label">Unique Floats</div>
+                    <div class="metric-value">{float_value}</div>
+                </div>
+            """, unsafe_allow_html=True)
+        
+        # Second row - Temperature, Depth, Date Range
+        col4, col5, col6 = st.columns(3)
         
         with col4:
+            if overall['min_temp'] is not None and overall['max_temp'] is not None:
+                temp_value = f"{overall['min_temp']:.2f}°C - {overall['max_temp']:.2f}°C"
+            else:
+                temp_value = "N/A"
+            st.markdown(f"""
+                <div class="custom-metric">
+                    <div class="metric-icon">�️</div>
+                    <div class="metric-label">Temperature Range</div>
+                    <div class="metric-value">{temp_value}</div>
+                </div>
+            """, unsafe_allow_html=True)
+        
+        with col5:
+            if overall['max_depth'] is not None:
+                depth_value = f"{overall['max_depth']:,.1f} dbar"
+            else:
+                depth_value = "N/A"
+            st.markdown(f"""
+                <div class="custom-metric">
+                    <div class="metric-icon">🌊</div>
+                    <div class="metric-label">Max Depth</div>
+                    <div class="metric-value">{depth_value}</div>
+                </div>
+            """, unsafe_allow_html=True)
+        
+        with col6:
             if overall['earliest_date'] and overall['latest_date']:
                 earliest = pd.to_datetime(overall['earliest_date'])
                 latest = pd.to_datetime(overall['latest_date'])
-                st.metric(
-                    label="📅 Date Range",
-                    value=f"{earliest.strftime('%Y-%m-%d')} to {latest.strftime('%Y-%m-%d')}",
-                    help="Temporal coverage"
-                )
+                date_value = f"{earliest.strftime('%Y-%m-%d')}<br>to<br>{latest.strftime('%Y-%m-%d')}"
             else:
-                st.metric(label="📅 Date Range", value="N/A")
-        
-        with col5:
-            if overall['unique_floats'] > 0:
-                st.metric(
-                    label="🎈 Floats",
-                    value=f"{overall['unique_floats']:,}",
-                    help="Unique floats in results"
-                )
-            else:
-                st.metric(label="🎈 Floats", value="N/A")
-        
-        with col6:
-            if overall['max_depth'] is not None:
-                st.metric(
-                    label="🌊 Max Depth",
-                    value=f"{overall['max_depth']:,.1f} dbar",
-                    help="Maximum pressure/depth"
-                )
-            else:
-                st.metric(label="🌊 Max Depth", value="N/A")
+                date_value = "N/A"
+            st.markdown(f"""
+                <div class="custom-metric">
+                    <div class="metric-icon">📅</div>
+                    <div class="metric-label">Date Range</div>
+                    <div class="metric-value">{date_value}</div>
+                </div>
+            """, unsafe_allow_html=True)
     
     def _render_regional_distribution(self, stats):
         """Render regional distribution charts"""
