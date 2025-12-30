@@ -5,6 +5,8 @@
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-blue.svg)](https://postgresql.org)
 [![FAISS](https://img.shields.io/badge/FAISS-Vector%20Store-green.svg)](https://github.com/facebookresearch/faiss)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+<img width="1482" height="970" alt="image" src="https://github.com/user-attachments/assets/38585832-0972-4f99-8c61-2e47510e69c8" />
+
 
 
 ---
