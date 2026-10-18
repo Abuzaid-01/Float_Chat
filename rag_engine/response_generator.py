@@ -13,9 +13,24 @@ class ResponseGenerator:
     """
     
     def __init__(self):
-        self.client = Groq(api_key=os.getenv('GROQ_API_KEY'))
-        self.model = os.getenv('GROQ_MODEL', 'llama-3.3-70b-versatile')
-        
+        api_key = None
+        model = None
+        try:
+            import streamlit as st
+            if "GROQ_API_KEY" in st.secrets:
+                api_key = st.secrets["GROQ_API_KEY"]
+            if "GROQ_MODEL" in st.secrets:
+                model = st.secrets["GROQ_MODEL"]
+        except Exception:
+            pass
+
+        if not api_key:
+            api_key = os.getenv("GROQ_API_KEY")
+        if not model:
+            model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+
+        self.client = Groq(api_key=api_key)
+        self.model = model
         print(f"✅ Response Generator using: {self.model}")
         
         # Enhanced prompt template with natural tone
@@ -90,6 +105,7 @@ class ResponseGenerator:
 - Match response length to question complexity
 - Use markdown headers (##, ###) to organize
 - Present data in the clearest format (table, bullets, or paragraph)
+- If providing a table, ALWAYS use standard Markdown table format with proper newlines between rows (e.g., | col1 | col2 |\n|---|---|\n| val1 | val2 |), keep it compact (3-5 rows, key columns only), and never combine multiple rows into a single unformatted line
 - Include units (°C, PSU, dbar, m)
 - Note data quality issues briefly if critical
 
@@ -281,15 +297,24 @@ Use the data in {query_results} and match the tone to the {query_type} query typ
         """Format results for LLM consumption"""
         if results.empty:
             return "No data found."
+
+        # Clean byte string artifacts
+        clean_df = results.copy()
+        for col in clean_df.columns:
+            if clean_df[col].dtype == "object":
+                clean_df[col] = clean_df[col].apply(
+                    lambda x: x.decode("utf-8").strip() if isinstance(x, bytes)
+                    else (x.strip()[2:-1].strip() if isinstance(x, str) and (x.strip().startswith("b'") and x.strip().endswith("'")) else str(x).strip())
+                )
         
         # If small dataset, include full details
-        if len(results) <= 20:
-            return results.to_string(index=False)
+        if len(clean_df) <= 20:
+            return clean_df.to_string(index=False)
         
         # For larger datasets, provide summary statistics
-        summary = f"Dataset contains {len(results)} records.\n\n"
+        summary = f"Dataset contains {len(clean_df)} records.\n\n"
         summary += "**Sample Records (first 10):**\n"
-        summary += results.head(10).to_string(index=False)
+        summary += clean_df.head(10).to_string(index=False)
         summary += "\n\n**Statistical Summary:**\n"
         
         # Add numeric column summaries

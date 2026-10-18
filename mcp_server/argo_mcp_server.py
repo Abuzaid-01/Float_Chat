@@ -394,17 +394,22 @@ class ARGOMCPServer:
         }
     
     def _handle_analyze_profile(self, float_id: str, cycle_number: int = None) -> Dict:
-        """Handle profile analysis"""
+        """Handle profile analysis (parameterized — injection-safe)"""
         session = self.db_setup.get_session()
         
-        # Float IDs are stored as string representations of bytes: "b'1901766 '"
-        # Use LIKE to match the float_id regardless of format
-        query = f"SELECT * FROM argo_profiles WHERE float_id LIKE '%{float_id}%'"
-        if cycle_number:
-            query += f" AND cycle_number = {cycle_number}"
-        
-        df = pd.read_sql(text(query), session.bind)
-        session.close()
+        # Parameterized LIKE matches both clean IDs ("1901766") and legacy
+        # byte-wrapper rows ("b'1901766 '") without an injection risk
+        try:
+            query = text("SELECT * FROM argo_profiles WHERE float_id LIKE :fid")
+            binds = {"fid": f"%{float_id}%"}
+            if cycle_number is not None:
+                query = text(
+                    "SELECT * FROM argo_profiles WHERE float_id LIKE :fid AND cycle_number = :cycle"
+                )
+                binds["cycle"] = int(cycle_number)
+            df = pd.read_sql(query, session.bind, params=binds)
+        finally:
+            session.close()
         
         if df.empty:
             return {"success": False, "error": "Profile not found"}

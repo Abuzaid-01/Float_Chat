@@ -4,6 +4,7 @@ import numpy as np
 from pathlib import Path
 from typing import List, Dict
 from datetime import datetime
+from data_processing.regions import classify_ocean_region, normalize_float_id
 
 class NetCDFExtractor:
     """Extract ARGO data from NetCDF files"""
@@ -43,8 +44,10 @@ class NetCDFExtractor:
             timestamp = self._julian_to_datetime(juld)
             
             # Get float ID and cycle number
+            # float_id is normalized (strips numpy b'...' wrapper) so exact-match
+            # queries can use the float_id index instead of LIKE '%...%' scans
             try:
-                float_id = str(self.ds['PLATFORM_NUMBER'].values[prof_idx])
+                float_id = normalize_float_id(self.ds['PLATFORM_NUMBER'].values[prof_idx])
                 cycle_num = int(self.ds['CYCLE_NUMBER'].values[prof_idx])
             except:
                 float_id = None
@@ -68,7 +71,8 @@ class NetCDFExtractor:
                     'timestamp': timestamp,
                     'pressure': float(pressure),
                     'temperature': float(temp),
-                    'salinity': float(sal)
+                    'salinity': float(sal),
+                    'ocean_region': classify_ocean_region(lat, lon)
                 }
                 
                 # Add QC flags if available

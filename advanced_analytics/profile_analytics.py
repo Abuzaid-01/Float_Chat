@@ -631,7 +631,15 @@ class AdvancedProfileAnalytics:
     
     def regional_comparison(self, region1: str, region2: str,
                            parameter: str = 'temperature') -> Dict:
-        """Compare parameters between regions"""
+        """Compare parameters between regions (whitelisted + bounded — injection-safe)"""
+        from data_processing.regions import ALLOWED_PARAMETERS
+
+        if parameter not in ALLOWED_PARAMETERS:
+            return {
+                "success": False,
+                "error": f"Unsupported parameter: {parameter}. Allowed: {sorted(ALLOWED_PARAMETERS)}"
+            }
+
         session = self.db_setup.get_session()
         
         try:
@@ -646,13 +654,13 @@ class AdvancedProfileAnalytics:
                     STDDEV({parameter}) as std_dev,
                     COUNT(*) as count
                 FROM argo_profiles
-                WHERE ocean_region ILIKE '%{region}%'
+                WHERE ocean_region ILIKE :region
                   AND {parameter} IS NOT NULL
                   AND temp_qc IN (1,2,3)
                   AND sal_qc IN (1,2,3)
                 """)
                 
-                df = pd.read_sql(query, session.bind)
+                df = pd.read_sql(query, session.bind, params={"region": f"%{region}%"})
                 
                 if len(df) > 0 and df.iloc[0]['count'] > 0:
                     results[region] = {
@@ -703,7 +711,15 @@ class AdvancedProfileAnalytics:
             }
     
     def trend_analysis(self, region: str, parameter: str, days: int = 90) -> Dict:
-        """Analyze trends over time"""
+        """Analyze trends over time (whitelisted + bounded — injection-safe)"""
+        from data_processing.regions import ALLOWED_PARAMETERS
+
+        if parameter not in ALLOWED_PARAMETERS:
+            return {
+                "success": False,
+                "error": f"Unsupported parameter: {parameter}. Allowed: {sorted(ALLOWED_PARAMETERS)}"
+            }
+
         session = self.db_setup.get_session()
         
         query = text(f"""
@@ -711,14 +727,14 @@ class AdvancedProfileAnalytics:
                AVG({parameter}) as avg_value,
                COUNT(*) as measurements
         FROM argo_profiles
-        WHERE ocean_region ILIKE '%{region}%'
-          AND timestamp >= CURRENT_DATE - INTERVAL '{days} days'
+        WHERE ocean_region ILIKE :region
+          AND timestamp >= CURRENT_DATE - INTERVAL :days
           AND {parameter} IS NOT NULL
         GROUP BY DATE_TRUNC('week', timestamp)
         ORDER BY week
         """)
         
-        df = pd.read_sql(query, session.bind)
+        df = pd.read_sql(query, session.bind, params={"region": f"%{region}%", "days": f"{int(days)} days"})
         session.close()
         
         if len(df) < 2:

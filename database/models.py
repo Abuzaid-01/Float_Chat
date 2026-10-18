@@ -30,6 +30,7 @@ class ArgoProfile(Base):
     # Metadata
     data_mode = Column(String(1), nullable=True)
     platform_type = Column(String(50), nullable=True)
+    ocean_region = Column(String(50), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     
     # Create indexes for efficient querying with schema specification
@@ -37,6 +38,7 @@ class ArgoProfile(Base):
         Index('idx_lat_lon', 'latitude', 'longitude'),
         Index('idx_timestamp', 'timestamp'),
         Index('idx_float_id', 'float_id'),
+        Index('idx_ocean_region', 'ocean_region'),
         Index('idx_spatial_temporal', 'latitude', 'longitude', 'timestamp'),
         {'schema': 'public'}
     )

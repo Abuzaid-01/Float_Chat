@@ -1,0 +1,12 @@
+# Netlify configuration when base directory is set directly to nexus-saa-s-ai-platform
+
+[build]
+  command = "pnpm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "20"
+  PNPM_VERSION = "9"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"

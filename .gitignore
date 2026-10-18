@@ -5,6 +5,7 @@ __pycache__/
 *.so
 .Python
 venv/
+.venv/
 env/
 ENV/
 
@@ -46,3 +47,22 @@ data_inserts.sql
 
 # Logs
 *.log
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Node.js / Next.js
+node_modules/
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+next-env.d.ts
+
+# FAISS index (regenerated on setup)
+*.faiss
+*.pkl
+
+# Data cache
+data_cache/

@@ -9,6 +9,8 @@ from groq import Groq
 from typing import Dict, List
 import json
 
+from rag_engine import llm_config
+
 
 class IntentClassifier:
     """
@@ -56,6 +58,14 @@ class IntentClassifier:
                            'tell me about this app'],
                 'response_template': self._get_about_floatchat
             },
+            'mcp_info': {
+                'keywords': ['mcp', 'mcp tool', 'mcp tools', 'model context protocol',
+                           'how many mcp', 'how many tools', 'available tools', 'what tools',
+                           'which tools', 'list tools', 'mcp server', 'benefit of mcp',
+                           'benefits of mcp', 'why mcp', 'mcp protocol', 'tell me about mcp',
+                           'about mcp', 'how does mcp work', 'what is mcp'],
+                'response_template': self._get_mcp_info
+            },
             'data_query': {
                 'keywords': [],  # Default for oceanographic queries
                 'response_template': None
@@ -76,7 +86,11 @@ class IntentClassifier:
                 "but keyword-based routing still works."
             )
 
-        self.client = Groq(api_key=api_key)
+        self.client = Groq(
+            api_key=api_key,
+            timeout=llm_config.REQUEST_TIMEOUT_SECONDS,
+            max_retries=llm_config.MAX_RETRIES,
+        )
         return self.client
     
     def classify_intent(self, user_query: str, conversation_history: List[Dict] = None) -> Dict:
@@ -128,10 +142,19 @@ class IntentClassifier:
                 'direct_response': None
             }
 
-        # Prefer explicit conversational/meta intents before generic data keyword routing.
-        # This prevents questions like "what is FloatChat?" from being treated as a data query.
+        # Questions about the app or its author are answered directly, whatever
+        # else they mention ("what is FloatChat?" is not a data query).
+        specific_meta = ('developer_info', 'assistant_identity', 'about_floatchat', 'mcp_info')
+        mentions_data = self._mentions_data(user_query_lower)
+        # A greeting, thanks or plea for help only wins when the message is not
+        # also a data question: "What features does the Arabian Sea temperature
+        # have?" must reach the data pipeline, while "thanks!" must not.
+        is_short = len(user_query_lower.split()) <= 3
+
         for intent_name, intent_data in self.intents.items():
             if intent_name == 'data_query':
+                continue
+            if intent_name not in specific_meta and mentions_data and not is_short:
                 continue
 
             for keyword in intent_data['keywords']:
@@ -161,12 +184,7 @@ class IntentClassifier:
                     }
         
         # Force route data-specific questions to data pipeline
-        data_keywords = ['dataset', 'data range', 'date range', 'from which date',
-                        'temperature', 'salinity', 'pressure', 'float',
-                        'arabian sea', 'bay of bengal', 'measurements', 'records',
-                        'when was data collected', 'time period', 'coverage', 'show']
-        
-        if any(keyword in user_query_lower for keyword in data_keywords):
+        if mentions_data:
             # This is definitely a data query
             return {
                 'intent': 'data_query',
@@ -198,6 +216,18 @@ class IntentClassifier:
             'direct_response': None
         }
     
+    # Words that mark a question as being about the ocean data itself.
+    _DATA_TERMS = re.compile(
+        r"\b(?:dataset|data\s+range|date\s+range|from\s+which\s+date|temperatures?|temp|salinit\w+|"
+        r"pressures?|floats?|profiles?|cycles?|depths?|thermoclines?|mixed\s+layers?|water\s+mass\w*|"
+        r"oxygen|chlorophyll|arabian|bengal|andaman|red\s+sea|indian\s+ocean|equatorial|southern\s+ocean|"
+        r"measurements?|records|observations?|latitude|longitude|trajectory|warmest|coldest|saltiest|"
+        r"when\s+was\s+data\s+collected|time\s+period|coverage|show|plot|compare|average|how\s+many)\b"
+    )
+
+    def _mentions_data(self, user_query_lower: str) -> bool:
+        return self._DATA_TERMS.search(user_query_lower) is not None
+
     def _classify_with_llm(self, user_query: str) -> Dict:
         """Use LLM to classify intent when keywords don't match"""
         
@@ -210,7 +240,8 @@ Classify the following user query into ONE of these categories:
 3. help - Requests for help, how to use, what can you do
 4. thanks - Thanking or expressing gratitude
 5. about_floatchat - Questions about what FloatChat is or does (NOT about the data itself)
-6. data_query - Questions about oceanographic data, dataset, date ranges, measurements, temperature, salinity, floats, regions, time periods, etc.
+6. mcp_info - Questions about MCP (Model Context Protocol), MCP tools, available tool count, tool list, tool benefits, or connecting external AI agents
+7. data_query - Questions about oceanographic data, dataset, date ranges, measurements, temperature, salinity, floats, regions, time periods, etc.
 
 IMPORTANT: If the question asks about data, dataset, dates, measurements, or any ocean parameters, classify as "data_query".
 
@@ -222,17 +253,8 @@ Respond ONLY with a JSON object in this format:
 JSON Response:"""
 
         try:
-            client = self._get_llm_client()
-            completion = client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,  # Low temperature for consistent classification
-                max_completion_tokens=100,
-                top_p=1,
-                stream=False
-            )
-            
-            response_text = completion.choices[0].message.content.strip()
+            # Shared helper: bounded timeout and retries, low temperature for consistency.
+            response_text = llm_config.chat(prompt, temperature=0.1, max_tokens=200, client=self._get_llm_client()).strip()
             
             # Parse JSON response
             # Remove markdown code blocks if present
@@ -242,6 +264,9 @@ JSON Response:"""
                 response_text = response_text.split('```')[1].split('```')[0].strip()
             
             result = json.loads(response_text)
+            if result.get('intent') not in self.intents:
+                return {'intent': 'data_query', 'confidence': 0.5}
+            result.setdefault('confidence', 0.7)
             return result
             
         except Exception as e:
@@ -281,14 +306,14 @@ If you tell me what you’re curious about (a region, date range, float ID, or a
 I'm your AI assistant for exploring ARGO oceanographic data. I can help you:
 
 - 🌊 Query ocean temperature, salinity, and pressure data
-- 🗺️ Find data from specific regions (Arabian Sea, Pacific Ocean, etc.)
+- 🗺️ Find data from specific regions (Arabian Sea, Bay of Bengal, Southern Indian Ocean…)
 - 📊 Analyze water masses and thermocline depths
 - 📈 Compare data across different locations and time periods
 - 🔍 Search for specific float measurements
 
 **Try asking me something like:**
 - "Show me temperature data from the Arabian Sea"
-- "What water masses are present at 15°N, 75°E?"
+- "Calculate the thermocline depth for float 2903956"
 - "Compare salinity between the Arabian Sea and Bay of Bengal"
 
 How can I help you today? 🚀"""
@@ -310,7 +335,7 @@ I'm powered by **MCP (Model Context Protocol)** and can understand natural langu
    - "Show me T-S diagram data"
 
 3. **Thermocline Calculations**
-   - "Calculate thermocline depth for float 2903871"
+   - "Calculate thermocline depth for float 2903956"
    - "Show temperature gradients"
 
 4. **Regional Comparisons**
@@ -319,7 +344,7 @@ I'm powered by **MCP (Model Context Protocol)** and can understand natural langu
 
 5. **Temporal Analysis**
    - "Show temperature trends over time"
-   - "What's changed in the last 5 years?"
+   - "How did temperature change day by day in the Arabian Sea?"
 
 ### 💡 **Tips:**
 - Be specific about locations, parameters, or time periods
@@ -327,9 +352,9 @@ I'm powered by **MCP (Model Context Protocol)** and can understand natural langu
 - Ask follow-up questions to dig deeper
 
 ### 🔧 **Powered By:**
-- 9 specialized MCP tools for oceanographic analysis
-- Llama 3.3-70B AI model via Groq
-- Real ARGO float data from the global ocean
+- Rule-based question understanding, with a large language model (via Groq) for free-form questions
+- Thermocline, mixed-layer and water-mass analysis of individual profiles
+- Real ARGO float data, with the SQL and rows shown beside every answer
 
 **Ready to explore? Ask me anything about ocean data!** 🌊"""
 
@@ -369,6 +394,69 @@ Whether you're a researcher diving deep into ocean patterns, a student learning 
 Built with ❤️ by **Abuzaid** - [LinkedIn](https://www.linkedin.com/in/abuzaid01) | [GitHub](https://github.com/Abuzaid-01)
 
 **Ready to explore? Just ask me anything about the ocean!** 🚀🌊"""
+
+
+    def _get_mcp_info(self) -> str:
+        """Detailed response about FloatChat MCP architecture and 9 specialized tools."""
+        return """## 🔌 FloatChat Model Context Protocol (MCP) Architecture
+
+FloatChat exposes a full **Model Context Protocol (MCP)** server—an open standard developed by Anthropic that allows external AI assistants (such as **Claude Desktop**, **Cursor IDE**, or autonomous agent frameworks) to interact directly with FloatChat as a secure, domain-specific oceanographic intelligence platform.
+
+---
+
+### 🛠️ The 9 Specialized MCP Tools Available:
+
+FloatChat provides **9 purpose-built tools** categorized into three operational pillars:
+
+#### 1. 📊 Core Data & Retrieval Tools
+1. **`query_argo_data`**  
+   *Natural language → SQL execution.* Translates conversational oceanographic questions into validated, injection-safe SQL queries over 1.2M+ ARGO float measurements.
+2. **`search_similar_profiles`**  
+   *Hybrid vector search (FAISS + BM25).* Discovers oceanographic profiles sharing semantic and hydrographic similarities across the Indian Ocean basin.
+3. **`get_database_schema`**  
+   *Live database introspection.* Exposes table structures (`argo_profiles`, `profile_summaries`), indexed spatial columns, and quality-control flags (QC 1–2).
+
+#### 2. 🌊 Advanced Oceanographic Analytics Tools
+4. **`calculate_thermocline`**  
+   Computes thermocline depth, thermal gradient (°C/m), and mixed layer depth (MLD) for any individual float cycle.
+5. **`identify_water_masses`**  
+   Scientifically classifies core water masses (e.g., *Red Sea Outflow Water*, *Persian Gulf Water*, *Bay of Bengal Water*) using temperature-salinity (T-S) signatures.
+6. **`calculate_mixed_layer_depth` / `get_bgc_data`**  
+   Extracts upper-ocean mixed layer dynamics and biogeochemical data (dissolved oxygen, chlorophyll, pH) from BGC-enabled floats.
+
+#### 3. 🗺️ Spatial, Temporal & Float Tracking Tools
+7. **`analyze_profile` / `analyze_float_profile`**  
+   Inspects complete float trajectories, sensor health, cycle counts, and geographic coordinates for any specific ARGO platform ID.
+8. **`compare_regions`**  
+   Performs statistical cross-basin comparisons (mean, min, max, std dev) between ocean regions (e.g., *Arabian Sea* vs. *Bay of Bengal*).
+9. **`analyze_temporal_trends`**  
+   Runs time-series linear regressions to analyze seasonal warming, cooling, or salinity drift across historical measurement windows.
+
+---
+
+### 🚀 Key Benefits of FloatChat's MCP Integration:
+
+* **Platform vs. Chatbot**: FloatChat is not limited to a web UI. Any external AI system can connect to FloatChat over standard JSON-RPC via stdio or SSE.
+* **Zero Hallucination Grounding**: External LLMs do not guess ocean values—they receive real, calibrated data from 714 active floats and 1,306 profiles.
+* **Defense-in-Depth Security**: Tool calls run in isolated `READ ONLY` database transactions with parameter binding and strict schema whitelisting.
+* **Scientific Computation**: Tools execute complex ocean physics algorithms (thermocline gradient, density-based water mass classification) directly on the backend.
+
+---
+
+### 💻 How External AI Clients Connect:
+Add this to your `claude_desktop_config.json`:
+```json
+{
+  "mcpServers": {
+    "floatchat": {
+      "command": "python3",
+      "args": ["-m", "mcp_server.argo_mcp_server"]
+    }
+  }
+}
+```
+
+*Ask me to run any analysis, search profiles, or query specific float data!* 🌊"""
 
 
 # Singleton instance
