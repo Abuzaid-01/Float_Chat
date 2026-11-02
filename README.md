@@ -1,707 +1,536 @@
-# 🌊 FloatChat - Complete Project Architecture
+# 🌊 FloatChat — AI-Powered ARGO Ocean Data Intelligence
 
-> **AI-Powered Conversational Interface for ARGO Ocean Data Analysis**  
-**🚀 [Live Demo](https://floatchat-chat.streamlit.app/)** | **📂 [GitHub Repository](https://github.com/Abuzaid-01/Float_Chat)**
+[![Netlify Status](https://api.netlify.com/api/v1/badges/53d62349-d478-4fcc-a8c1-5c8c26caeb39/deploy-status)](https://app.netlify.com/projects/peppy-pastelito-f38703/deploys)
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green.svg)](https://fastapi.tiangolo.com/)
+[![Next.js 16](https://img.shields.io/badge/Next.js-16-black.svg)](https://nextjs.org/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Neon-brightgreen.svg)](https://neon.tech/)
 
----
+> **Conversational AI interface for querying 1.27 million ARGO oceanographic float records using natural language — no SQL required.**
+
+**🔗 Live App (Next.js):** [peppy-pastelito-f38703.netlify.app](https://peppy-pastelito-f38703.netlify.app)  
+**🔗 Live App (Streamlit):** [floatchat-chat.streamlit.app](https://floatchat-chat.streamlit.app/)  
+**📂 GitHub:** [github.com/Abuzaid-01/Float_Chat](https://github.com/Abuzaid-01/Float_Chat)
+
 ---
 
 ## 📋 Table of Contents
 
-1. [System Overview](#-system-overview)
-2. [Architecture Diagram](#-architecture-diagram)
-3. [Component Breakdown](#-component-breakdown)
-4. [Execution Flow](#-execution-flow)
-5. [MCP Tool System](#-mcp-tool-system)
-6. [Data Flow Pipeline](#-data-flow-pipeline)
-7. [Technology Stack](#-technology-stack)
+1. [What is FloatChat?](#-what-is-floatchat)
+2. [Dataset Statistics](#-dataset-statistics)
+3. [System Architecture](#-system-architecture)
+4. [RAG Pipeline](#-rag-pipeline-8-steps)
+5. [Key Technical Innovations](#-key-technical-innovations)
+6. [MCP Tool System](#-mcp-tool-system)
+7. [Advanced Analytics](#-advanced-analytics)
+8. [Database Schema](#-database-schema)
+9. [Dual Frontend](#-dual-frontend)
+10. [Project Structure](#-project-structure)
+11. [Tech Stack](#-tech-stack)
+12. [Local Development Setup](#-local-development-setup)
+13. [Environment Variables](#-environment-variables)
+14. [Deployment](#-deployment)
+15. [Example Queries](#-example-queries)
 
 ---
 
-## 🎯 System Overview
+## 🎯 What is FloatChat?
 
-FloatChat is an intelligent conversational interface that enables users to query, analyze, and visualize **1.27 million ARGO ocean float records** using natural language. It combines **RAG (Retrieval-Augmented Generation)**, **MCP (Model Context Protocol)**, and **Vector Search** to provide accurate, context-aware responses.
+**ARGO floats** are autonomous underwater robots deployed globally to measure ocean temperature, salinity, and pressure at depths up to 2,000 m. They surface every 10 days to transmit data — forming one of the world's most important oceanographic datasets.
 
-### Key Features
-- 🤖 Natural language queries (no SQL knowledge needed)
-- 🗺️ Interactive map visualizations
-- 📊 Real-time data analytics
-- 🔍 Semantic profile search (FAISS vector store)
-- 💬 Context-aware conversation memory
-- 🛠️ 9 specialized MCP tools for data operations
+**FloatChat** makes this data accessible to anyone:
 
----
+- Ask questions in plain English: *"What is the average temperature in the Arabian Sea in October?"*
+- Get back structured tables, natural-language summaries, and interactive charts
+- Drill into profiles: thermocline depth, mixed layer depth, water mass identification
+- Compare regions, track temporal trends, and run semantic similarity searches across profiles
 
-## 🏗️ Architecture Diagram
-
-### High-Level System Architecture
-
-```mermaid
-graph TB
-    subgraph "Frontend Layer"
-        UI[Streamlit UI<br/>🖥️ Web Interface]
-        TABS[Tab System<br/>📑 Dashboard / Map / Analytics / Chat]
-    end
-    
-    subgraph "Application Layer"
-        APP[Main App<br/>app.py<br/>🎯 Entry Point]
-        INTENT[Intent Classifier<br/>🧠 Groq Llama 3.3<br/>Route: Data vs Conversational]
-        MCP_CHAT[MCP Chat Interface<br/>💬 Query Handler]
-    end
-    
-    subgraph "MCP Tool Layer"
-        MCP_PROCESSOR[MCP Query Processor<br/>🔧 Tool Orchestrator]
-        MCP_SERVER[ARGO MCP Server<br/>🛠️ 9 Tools Registered]
-        
-        subgraph "MCP Tools"
-            T1[query_argo_data]
-            T2[get_database_schema]
-            T3[search_similar_profiles]
-            T4[compare_regions]
-            T5[identify_water_masses]
-            T6[calculate_thermocline]
-            T7[get_temporal_trends]
-            T8[calculate_mld]
-            T9[analyze_profile_statistics]
-        end
-    end
-    
-    subgraph "RAG Pipeline Layer"
-        QP[Query Processor<br/>🔄 Orchestrates Pipeline]
-        VS[Vector Store<br/>🔍 FAISS<br/>1,306 Embeddings]
-        SQLGEN[SQL Generator<br/>🔧 Groq Llama 3.3<br/>NL → SQL]
-        RG[Response Generator<br/>📝 Groq Llama 3.3<br/>Format Results]
-    end
-    
-    subgraph "Data Layer"
-        DB[(PostgreSQL<br/>Neon Cloud<br/>💾 1.27M Records)]
-        SCHEMA[Database Schema<br/>argo_profiles<br/>profile_summaries]
-    end
-    
-    subgraph "AI Models"
-        GROQ[Groq API<br/>Llama 3.3 70B<br/>All LLM Tasks]
-        EMBED[Embeddings<br/>all-MiniLM-L6-v2<br/>384 dimensions]
-    end
-    
-    UI --> APP
-    APP --> INTENT
-    INTENT -->|Data Query| MCP_CHAT
-    INTENT -->|Conversational| MCP_CHAT
-    MCP_CHAT --> MCP_PROCESSOR
-    MCP_PROCESSOR --> MCP_SERVER
-    MCP_SERVER --> T1 & T2 & T3 & T4 & T5 & T6 & T7 & T8 & T9
-    
-    T1 & T3 & T4 & T5 & T6 & T7 & T8 & T9 --> QP
-    T2 --> DB
-    
-    QP --> VS
-    QP --> SQLGEN
-    QP --> DB
-    QP --> RG
-    
-    SQLGEN --> GROQ
-    VS --> EMBED
-    RG --> GROQ
-    INTENT --> GROQ
-    
-    DB --> SCHEMA
-    APP --> TABS
-    TABS --> UI
-    
-    style UI fill:#667eea,stroke:#333,stroke-width:2px,color:#fff
-    style MCP_SERVER fill:#f093fb,stroke:#333,stroke-width:2px,color:#000
-    style QP fill:#4facfe,stroke:#333,stroke-width:2px,color:#fff
-    style DB fill:#43e97b,stroke:#333,stroke-width:2px,color:#000
-    style GROQ fill:#feca57,stroke:#333,stroke-width:2px,color:#000
-```
+The backend combines a **Hybrid RAG pipeline** (FAISS + BM25 + RRF reranking), **dynamic SQL generation** (Groq Llama 3.3 70B), **semantic caching**, a **self-correction loop**, and a **9-tool MCP server** — making it production-ready, not just a demo.
 
 ---
 
-## 🧩 Component Breakdown
+## 📊 Dataset Statistics
 
-### 1. Frontend Layer (`streamlit_app/`)
+| Metric | Value |
+|--------|-------|
+| **Total Measurements** | 1,268,992 |
+| **Unique ARGO Floats** | 714 |
+| **Vertical Profiles** | 1,306 |
+| **Date Range** | 2004 – 2025 |
+| **Geographic Coverage** | Indian Ocean |
+| **Core Parameters** | Temperature, Salinity, Pressure |
+| **BGC Parameters** | Dissolved O₂, Nitrate, pH, Chlorophyll-a, BBP, Irradiance |
+| **Vector Embeddings** | 1,306 (384-dim, all-MiniLM-L6-v2) |
 
-#### Main Application (`app.py`)
-- **Purpose**: Entry point for the entire application
-- **Responsibilities**:
-  - Initialize Streamlit page configuration
-  - Load custom CSS for modern UI
-  - Render main header and navigation
-  - Manage tab system (Dashboard, Map, Analytics, Chat, Data Table)
-  - Coordinate component communication via session state
+### Indian Ocean Regions
 
-#### Components (`components/`)
-
-```mermaid
-graph LR
-    A[app.py] --> B[MCP Chat Interface]
-    A --> C[Data Dashboard]
-    A --> D[Map View]
-    A --> E[Analytics Panel]
-    A --> F[Profile Viewer]
-    
-    B --> G[Session State Manager]
-    C --> G
-    D --> G
-    E --> G
-    
-    style A fill:#667eea,color:#fff
-    style B fill:#f093fb,color:#000
-    style G fill:#43e97b,color:#000
-```
-
-| Component | File | Responsibility |
-|-----------|------|----------------|
-| **MCP Chat Interface** | `mcp_chat_interface.py` | Query input, conversation memory, response display |
-| **Data Dashboard** | `data_dashboard.py` | Metrics cards, query-specific statistics |
-| **Map View** | `map_view.py` | Interactive Leaflet map with float locations |
-| **Advanced Viz Panel** | `advanced_viz_panel.py` | Plotly charts (profiles, trends, comparisons) |
-| **Profile Viewer** | `profile_viewer.py` | Detailed profile analysis |
-| **Sidebar** | `sidebar.py` | Filters, settings, about section |
+| Region | Coverage |
+|--------|----------|
+| Arabian Sea | 45–78°E, 5–25°N |
+| Bay of Bengal | 80–100°E, 5–22°N |
+| Red Sea | 32–43°E, 12–28°N |
+| Andaman Sea | 92–100°E, 5–15°N |
+| Equatorial Indian Ocean | 45–95°E, 10°S–5°N |
+| Southern Indian Ocean | 20–115°E, 60–30°S |
 
 ---
 
-### 2. Intent Classification System (`rag_engine/intent_classifier.py`)
-
-#### Purpose
-Routes queries to appropriate handlers based on user intent, making responses human-like and context-aware.
+## 🏗️ System Architecture
 
 ```mermaid
 flowchart TD
-    START[User Query] --> KEYWORD{Keyword Match?}
-    
-    KEYWORD -->|Yes: greeting| GREETING[Return Greeting]
-    KEYWORD -->|Yes: thanks| THANKS[Return Thanks]
-    KEYWORD -->|Yes: help| HELP[Show Capabilities]
-    KEYWORD -->|Yes: who built| DEV[Developer Info]
-    KEYWORD -->|Yes: who are you| IDENTITY[Assistant Identity]
-    KEYWORD -->|Yes: about floatchat| ABOUT[About FloatChat]
-    
-    KEYWORD -->|No Match| LLM[Groq Llama 3.3<br/>LLM Classification]
-    
-    LLM --> INTENT{Intent?}
-    INTENT -->|Conversational| CONV[Generate Response]
-    INTENT -->|Data Query| DATA[Route to MCP]
-    
-    GREETING & THANKS & HELP & DEV & IDENTITY & ABOUT --> RETURN[Return to User]
-    CONV --> RETURN
-    DATA --> MCP[MCP Query Processor]
-    
-    style START fill:#667eea,color:#fff
-    style LLM fill:#feca57,color:#000
-    style DATA fill:#f093fb,color:#000
-    style MCP fill:#4facfe,color:#fff
-```
+    subgraph Frontends
+        NX["Next.js 16\n(Netlify)"]
+        ST["Streamlit\n(Streamlit Cloud)"]
+    end
 
-#### Supported Intents
-1. **greeting** - "hi", "hello", "hey"
-2. **thanks** - "thank you", "thanks"
-3. **help** - "help me", "what can you do"
-4. **developer_info** - "who built you"
-5. **assistant_identity** - "who are you"
-6. **about_floatchat** - "what is floatchat"
-7. **data_query** - All oceanographic queries (default)
+    subgraph FastAPI_Backend["FastAPI Backend (api/main.py)"]
+        CRW["_rewrite_with_context()\nConversation Rewriter"]
+        IC["Intent Classifier\n8 intent categories"]
+        QR["Query Router\nTemplate / Simple / Complex"]
+    end
+
+    subgraph RAG_Engine["RAG Engine"]
+        QP["Query Processor\n8-step pipeline"]
+        SC["Semantic Cache\ncosine ≥ 0.95, 30-min TTL"]
+        HR["Hybrid Retriever\nFAISS + BM25 + RRF"]
+        SG["SQL Generator\nDynamic Schema Pruning"]
+        RG["Response Generator"]
+    end
+
+    subgraph MCP_Layer["MCP Server (9 tools)"]
+        MCP["argo_mcp_server.py"]
+    end
+
+    subgraph Data_Layer["Data Layer"]
+        DB[("Neon PostgreSQL\n1.27M records")]
+        VS["FAISS Vector Store\n1,306 embeddings"]
+    end
+
+    subgraph AI_Models["AI Models"]
+        GROQ["Groq Llama 3.3 70B\nSQL + Response + Intent"]
+        EMB["all-MiniLM-L6-v2\n384-dim embeddings"]
+    end
+
+    NX --> FastAPI_Backend
+    ST --> FastAPI_Backend
+    CRW --> IC --> QR --> QP
+    QP --> SC
+    QP --> HR --> VS
+    QP --> SG --> GROQ
+    QP --> DB
+    QP --> RG --> GROQ
+    QP --> MCP
+    EMB --> VS
+```
 
 ---
 
-### 3. MCP Tool System
+## 🔄 RAG Pipeline (8 Steps)
 
-#### MCP Architecture
+Every data query passes through this pipeline in `rag_engine/query_processor.py`:
 
-```mermaid
-graph TB
-    subgraph "MCP Protocol Layer"
-        PROTOCOL[MCP Protocol<br/>mcp_protocol.py<br/>Tool Registry]
-    end
-    
-    subgraph "MCP Server"
-        SERVER[ARGO MCP Server<br/>argo_mcp_server.py]
-        TOOLS[Tool Handlers]
-    end
-    
-    subgraph "Query Processing"
-        PROCESSOR[MCP Query Processor<br/>mcp_query_processor.py<br/>Tool Selection & Orchestration]
-    end
-    
-    subgraph "Tools Implementation"
-        direction LR
-        T1[Tool 1<br/>query_argo_data<br/>General queries]
-        T2[Tool 2<br/>get_database_schema<br/>Schema info]
-        T3[Tool 3<br/>search_similar_profiles<br/>Vector search]
-        T4[Tool 4<br/>compare_regions<br/>Regional analysis]
-        T5[Tool 5<br/>identify_water_masses<br/>T-S analysis]
-        T6[Tool 6<br/>calculate_thermocline<br/>Thermal layers]
-        T7[Tool 7<br/>get_temporal_trends<br/>Time series]
-        T8[Tool 8<br/>calculate_mld<br/>Mixed layer depth]
-        T9[Tool 9<br/>analyze_profile_statistics<br/>Profile stats]
-    end
-    
-    PROCESSOR --> SERVER
-    SERVER --> PROTOCOL
-    PROTOCOL --> TOOLS
-    TOOLS --> T1 & T2 & T3 & T4 & T5 & T6 & T7 & T8 & T9
-    
-    style PROTOCOL fill:#667eea,color:#fff
-    style SERVER fill:#f093fb,color:#000
-    style PROCESSOR fill:#4facfe,color:#fff
-```
-
-#### MCP Tool Details
-
-| Tool Name | Purpose | Input | Output |
-|-----------|---------|-------|--------|
-| **query_argo_data** | General data queries | `query` (string), `limit` (int) | DataFrame with results |
-| **get_database_schema** | Get DB structure | None | Schema + record counts |
-| **search_similar_profiles** | Semantic search | `query_text`, `top_k` | Similar profiles |
-| **compare_regions** | Regional comparison | `region1`, `region2`, `parameter` | Comparative stats |
-| **identify_water_masses** | T-S diagram analysis | `min_depth`, `max_depth` | Water mass classification |
-| **calculate_thermocline** | Find thermocline depth | `float_id`, `cycle` | Thermocline depth + gradient |
-| **get_temporal_trends** | Time series analysis | `parameter`, `date_range` | Trend data |
-| **calculate_mld** | Mixed layer depth | `float_id`, `cycle`, `criteria` | MLD value |
-| **analyze_profile_statistics** | Profile summary | `float_id`, `cycle` | Detailed statistics |
-
----
-
-### 4. RAG Pipeline
-
-#### Complete RAG Flow
+| Step | Name | What Happens |
+|------|------|--------------|
+| **1** | **Semantic Cache Check** | Cosine similarity (≥ 0.95) against recent queries. Cache hit → return instantly, skip all steps below |
+| **2** | **Query Parsing** | `QueryParser` extracts dates, regions, float IDs, parameters, quality flags. Detects SCOPE_BROADENING follow-ups |
+| **3** | **Context Rewriting** | `_rewrite_with_context()` in FastAPI resolves pronouns and references using prior conversation turns |
+| **4** | **Hybrid Retrieval** | FAISS (dense, `k=10`) + BM25 (sparse, `k=10`) → RRF reranking (`k=60`) → top-5 profile summaries as context |
+| **5** | **Dynamic Schema Pruning** | Only relevant columns passed to LLM (~57% token reduction vs full schema) |
+| **6** | **SQL Generation** | Groq Llama 3.3 70B generates SQL with retrieved context; syntax validated before execution |
+| **7** | **Self-Correction Loop** | If 0 results returned: auto-relax QC filters + widen bounding box by 5° and retry |
+| **8** | **Response Generation** | Results formatted into natural-language response with Groq Llama 3.3 70B |
 
 ```mermaid
 sequenceDiagram
-    participant User
-    participant MCP as MCP Processor
-    participant VS as Vector Store<br/>(FAISS)
-    participant SQL as SQL Generator<br/>(Groq Llama 3.3)
-    participant DB as PostgreSQL
-    participant RG as Response Generator<br/>(Groq Llama 3.3)
-    
-    User->>MCP: Natural language query
-    
-    Note over MCP: Step 1: Context Retrieval
-    MCP->>VS: Generate query embedding
-    VS->>VS: Search similar profiles (k=3)
-    VS-->>MCP: Return top 3 profiles + metadata
-    
-    Note over MCP: Step 2: SQL Generation
-    MCP->>SQL: Query + Retrieved context
-    SQL->>SQL: Generate SQL with Groq LLM
-    SQL->>SQL: Validate SQL syntax
-    SQL-->>MCP: Valid SQL query
-    
-    Note over MCP: Step 3: Execute Query
-    MCP->>DB: Execute SQL
-    DB-->>MCP: Return results (DataFrame)
-    
-    Note over MCP: Step 4: Response Generation
-    MCP->>RG: Query + Results + Context
-    RG->>RG: Format natural language response
-    RG-->>MCP: Human-readable response
-    
-    MCP-->>User: Final response + visualizations
-    
-    Note over User,RG: Total Pipeline Time: ~2-5 seconds
-```
+    participant U as User
+    participant API as FastAPI
+    participant SC as Semantic Cache
+    participant HR as Hybrid Retriever
+    participant SG as SQL Generator
+    participant DB as Neon PostgreSQL
+    participant RG as Response Generator
 
-#### Pipeline Components
-
-##### **Query Processor** (`rag_engine/query_processor.py`)
-- Orchestrates the entire RAG pipeline
-- Coordinates vector search, SQL generation, and execution
-- Returns structured results with metadata
-
-##### **Vector Store** (`vector_store/vector_db.py`)
-- Technology: FAISS (Facebook AI Similarity Search)
-- **1,306 profile embeddings** (384 dimensions)
-- Embedding model: `sentence-transformers/all-MiniLM-L6-v2`
-- Average search time: <100ms
-
-##### **SQL Generator** (`rag_engine/sql_generator.py`)
-- Powered by Groq Llama 3.3 70B
-- Converts natural language → SQL queries
-- Context-aware with retrieved profile summaries
-- Validates SQL syntax before execution
-
-##### **Response Generator** (`rag_engine/response_generator.py`)
-- Formats query results into natural language
-- Maintains conversational tone
-- Includes relevant context and explanations
-
----
-
-## 🔄 Complete Execution Flow
-
-### End-to-End Query Processing
-
-```mermaid
-flowchart TD
-    START([User enters query]) --> LOAD[Load into Streamlit UI]
-    
-    LOAD --> SESSION{Check Session State}
-    SESSION -->|First message| INIT[Initialize conversation]
-    SESSION -->|Existing| APPEND[Append to history]
-    
-    INIT & APPEND --> INTENT[Intent Classification]
-    
-    INTENT --> CLASSIFY{Query Type?}
-    
-    CLASSIFY -->|Conversational| CONV_RESP[Generate conversational response]
-    CLASSIFY -->|Data Query| MCP_START[MCP Query Processor]
-    
-    CONV_RESP --> DISPLAY
-    
-    MCP_START --> PATTERN{Match Query Pattern?}
-    
-    PATTERN -->|Schema| T_SCHEMA[Tool: get_database_schema]
-    PATTERN -->|Comparison| T_COMPARE[Tool: compare_regions]
-    PATTERN -->|Thermocline| T_THERMO[Tool: calculate_thermocline]
-    PATTERN -->|Water Mass| T_WATER[Tool: identify_water_masses]
-    PATTERN -->|Temporal| T_TEMPORAL[Tool: get_temporal_trends]
-    PATTERN -->|MLD| T_MLD[Tool: calculate_mld]
-    PATTERN -->|Similar| T_SIMILAR[Tool: search_similar_profiles]
-    PATTERN -->|Analysis| T_STATS[Tool: analyze_profile_statistics]
-    PATTERN -->|General| T_QUERY[Tool: query_argo_data]
-    
-    T_SCHEMA --> EXECUTE_TOOL
-    T_COMPARE --> EXECUTE_TOOL
-    T_THERMO --> EXECUTE_TOOL
-    T_WATER --> EXECUTE_TOOL
-    T_TEMPORAL --> EXECUTE_TOOL
-    T_MLD --> EXECUTE_TOOL
-    T_SIMILAR --> EXECUTE_TOOL
-    T_STATS --> EXECUTE_TOOL
-    T_QUERY --> RAG_PIPELINE
-    
-    EXECUTE_TOOL[Execute Tool Handler] --> RESULTS[Get Results]
-    
-    RAG_PIPELINE[RAG Pipeline] --> VECTOR[Vector Search<br/>FAISS]
-    VECTOR --> SQL_GEN[SQL Generation<br/>Groq Llama 3.3]
-    SQL_GEN --> DB_EXEC[Execute on PostgreSQL]
-    DB_EXEC --> RESULTS
-    
-    RESULTS --> ENHANCE[Response Enhancement<br/>Groq Llama 3.3]
-    ENHANCE --> FORMAT[Format Response]
-    FORMAT --> VISUALIZE[Generate Visualizations]
-    
-    VISUALIZE --> UPDATE_STATE[Update Session State]
-    UPDATE_STATE --> UPDATE_TABS[Sync All Tabs]
-    
-    UPDATE_TABS --> DISPLAY[Display in UI]
-    
-    DISPLAY --> END([User sees response])
-    
-    style START fill:#667eea,color:#fff
-    style INTENT fill:#feca57,color:#000
-    style MCP_START fill:#f093fb,color:#000
-    style RAG_PIPELINE fill:#4facfe,color:#fff
-    style DB_EXEC fill:#43e97b,color:#000
-    style END fill:#667eea,color:#fff
+    U->>API: Natural language query
+    API->>API: _rewrite_with_context()
+    API->>SC: Check cache (cosine ≥ 0.95)
+    SC-->>API: Cache HIT → instant return
+    Note over API,RG: Cache MISS → full pipeline
+    API->>HR: FAISS(k=10) + BM25(k=10) → RRF → top-5
+    HR-->>API: Profile context
+    API->>SG: Query + context + pruned schema
+    SG->>DB: Validated SQL
+    DB-->>SG: Results DataFrame
+    Note over SG,DB: 0 results? Self-correct: relax QC + widen 5°
+    SG->>RG: Results + context
+    RG-->>U: Natural language response (~2–5 s)
 ```
 
 ---
 
-## 📊 Data Flow Pipeline
+## ✨ Key Technical Innovations
 
-### Database to Visualization
+### 1. Hybrid RAG with RRF Reranking
+- **Dense retrieval**: FAISS `IndexFlatL2` (384-dim embeddings from `all-MiniLM-L6-v2`)
+- **Sparse retrieval**: BM25 over profile summary text
+- **Fusion**: Reciprocal Rank Fusion (`k=60`) merges both ranked lists for best of both worlds
 
-```mermaid
-graph LR
-    subgraph "Data Sources"
-        ARGO[ARGO Float Data<br/>NetCDF Files]
-    end
-    
-    subgraph "Database"
-        DB[(PostgreSQL Neon<br/>1,268,992 records)]
-        T1[argo_profiles<br/>Core + BGC params]
-        T2[profile_summaries<br/>1,306 summaries]
-    end
-    
-    subgraph "Vector Store"
-        VS[FAISS Index<br/>1,306 embeddings]
-        META[Metadata PKL<br/>Profile info]
-    end
-    
-    subgraph "Processing"
-        QP[Query Processor]
-        SQL[SQL Generator]
-    end
-    
-    subgraph "Results"
-        DF[Pandas DataFrame]
-        VIZ[Plotly Visualizations]
-        MAP[Leaflet Maps]
-        METRICS[Metric Cards]
-    end
-    
-    ARGO -->|ETL| DB
-    DB --> T1 & T2
-    T2 -->|Generate Embeddings| VS
-    VS --> META
-    
-    T1 & T2 --> QP
-    VS --> QP
-    QP --> SQL
-    SQL --> DB
-    DB --> DF
-    
-    DF --> VIZ & MAP & METRICS
-    
-    style DB fill:#43e97b,color:#000
-    style VS fill:#4facfe,color:#fff
-    style DF fill:#f093fb,color:#000
-```
+### 2. Dynamic Schema Pruning (~57% Token Reduction)
+The SQL generator in `rag_engine/sql_generator.py` inspects the parsed query and passes only the columns likely needed to the LLM — not the full schema. This cuts input tokens dramatically and reduces hallucination risk.
+
+### 3. Semantic Caching
+`rag_engine/semantic_cache.py` caches query–response pairs. On each new query it computes cosine similarity against cached entries:
+- **Threshold**: ≥ 0.95
+- **TTL**: 30 minutes
+- **Max entries**: 200
+- **Effect**: Sub-second responses for semantically identical follow-ups
+
+### 4. Self-Correction Loop
+When the DB returns 0 rows, the pipeline automatically:
+1. Removes strict QC flag filters (`qc_flag = 1`)
+2. Widens geographic bounding boxes by ±5°
+3. Re-runs the SQL
+This prevents frustrating "no data found" dead ends.
+
+### 5. Scope-Broadening Detection
+`rag_engine/query_parser.py` uses regex patterns to detect when a follow-up broadens scope (e.g., *"for October 12"* → *"for each day"*). When detected, the prior date/region filter is discarded rather than kept as context — fixing a critical conversation memory bug.
+
+### 6. Conversation Context Rewriting
+`api/main.py` runs `_rewrite_with_context()` before every query. It prepends the last N conversation turns and asks the LLM to rewrite the user's message as a fully self-contained question. This allows multi-turn conversations like:
+> "Show data for float 2902746" → "Now compare it with the Arabian Sea" ✅
+
+### 7. Query Routing
+`rag_engine/query_router.py` classifies each query into one of three routes:
+- **Template** — exact pattern match (schema lookups, count queries) → no LLM call
+- **Simple RAG** — single-table queries → single SQL + response
+- **Complex RAG** — multi-step, comparative, or analytical → full 8-step pipeline + MCP tools
+
+### 8. MCP Protocol (9 Specialized Tools)
+The Model Context Protocol server exposes oceanographic tools as structured APIs, enabling the LLM to call them with typed arguments and get structured JSON back.
+
+---
+
+## 🛠️ MCP Tool System
+
+`mcp_server/argo_mcp_server.py` registers 9 tools:
+
+| # | Tool | Purpose | Key Inputs |
+|---|------|---------|------------|
+| 1 | `query_argo_data` | General NL→SQL data queries | `query`, `limit` |
+| 2 | `get_database_schema` | Return full schema + row counts | — |
+| 3 | `search_similar_profiles` | FAISS semantic search | `query_text`, `top_k` |
+| 4 | `analyze_float_profile` | Stats for one float/cycle | `float_id`, `cycle` |
+| 5 | `calculate_thermocline` | Find thermocline depth & gradient | `float_id`, `cycle` |
+| 6 | `identify_water_masses` | T-S diagram classification | `min_depth`, `max_depth` |
+| 7 | `compare_regions` | Side-by-side regional comparison | `region1`, `region2`, `parameter` |
+| 8 | `analyze_temporal_trends` | Time series of any parameter | `parameter`, `date_range` |
+| 9 | `calculate_mixed_layer_depth` | MLD via density/temperature criteria | `float_id`, `cycle`, `criteria` |
+
+---
+
+## 🌡️ Advanced Analytics
+
+`advanced_analytics/profile_analytics.py` provides physics-based computations:
+
+### Thermocline Detection
+- Computes temperature gradient (°C / dbar) at every depth level
+- Identifies the depth where `|dT/dP|` exceeds threshold
+- Returns thermocline depth + gradient strength
+
+### Mixed Layer Depth (MLD)
+- **Temperature criterion**: depth where T drops 0.2°C below surface
+- **Density criterion**: depth where Δσθ > 0.03 kg/m³ from surface
+- Returns MLD value in dbar
+
+### Water Mass Identification (8 Types)
+Classifies water parcels in T-S space:
+
+| Code | Name | Typical Location |
+|------|------|-----------------|
+| IOSW | Indian Ocean Surface Water | Surface, tropical |
+| ASHSW | Arabian Sea High-Salinity Water | Arabian Sea surface |
+| BBLSW | Bay of Bengal Low-Salinity Water | BoB surface |
+| IOCW | Indian Ocean Central Water | 200–800 m |
+| ITW | Indian Thermocline Water | Thermocline layer |
+| AAIW | Antarctic Intermediate Water | 800–1200 m |
+| IDW | Indian Deep Water | 1500–3500 m |
+| AABW | Antarctic Bottom Water | > 3500 m |
+
+### Brunt-Väisälä Frequency (N²)
+Computes ocean stability: $N^2 = -\frac{g}{\rho_0} \frac{\partial \rho}{\partial z}$, indicating stratification strength at each depth.
 
 ---
 
 ## 💾 Database Schema
 
+**Primary table**: `argo_profiles` (1,268,992 rows)
 
-### Data Statistics
+| Column | Type | Description |
+|--------|------|-------------|
+| `float_id` | VARCHAR | ARGO float WMO identifier |
+| `cycle_number` | INTEGER | Profile cycle (surfacing number) |
+| `observation_date` | TIMESTAMP | UTC observation time |
+| `latitude` | FLOAT | Decimal degrees N |
+| `longitude` | FLOAT | Decimal degrees E |
+| `pressure` | FLOAT | Depth in dbar |
+| `temperature` | FLOAT | In-situ temperature (°C) |
+| `salinity` | FLOAT | Practical salinity units (PSU) |
+| `temperature_qc` | INTEGER | Quality flag (1=good, 4=bad) |
+| `salinity_qc` | INTEGER | Quality flag |
+| `region` | VARCHAR | One of 6 Indian Ocean regions |
+| `dissolved_oxygen` | FLOAT | BGC parameter (µmol/kg) |
+| `nitrate` | FLOAT | BGC parameter (µmol/kg) |
+| `ph` | FLOAT | BGC parameter |
+| `chlorophyll_a` | FLOAT | BGC parameter (mg/m³) |
 
-| Metric | Value |
-|--------|-------|
-| **Total Records** | 1,268,992 |
-| **Unique Floats** | 668 |
-| **Unique Profiles** | 1,306 |
-| **Date Range** | 2004 - 2024 |
-| **Geographic Coverage** | Indian Ocean |
-| **Core ARGO Parameters** | Temperature, Salinity, Pressure |
-| **BGC Parameters** | DO, Nitrate, pH, Chlorophyll, BBP, Irradiance |
-
----
-
-## 🛠️ Technology Stack
-
-### Frontend
-```mermaid
-graph LR
-    A[Streamlit 1.31+] --> B[Plotly Express]
-    A --> C[Leaflet Maps]
-    A --> D[Custom CSS/JS]
-    
-    style A fill:#FF4B4B,color:#fff
-```
-
-### Backend & AI
-```mermaid
-graph TB
-    subgraph "AI Models"
-        G[Groq<br/>Llama 3.3 70B<br/>All LLM Tasks]
-        E[HuggingFace<br/>all-MiniLM-L6-v2<br/>Embeddings]
-    end
-    
-    subgraph "Data Processing"
-        PD[Pandas]
-        NP[NumPy]
-        SP[SciPy]
-    end
-    
-    subgraph "MCP & RAG"
-        LC[LangChain]
-        LS[LangSmith Tracing]
-    end
-    
-    style G fill:#feca57,color:#000
-    style E fill:#4facfe,color:#fff
-```
-
-### Database & Storage
-```mermaid
-graph LR
-    A[PostgreSQL 16<br/>Neon Cloud] --> B[SQLAlchemy ORM]
-    C[FAISS<br/>Vector Store] --> D[384-dim Embeddings]
-    
-    style A fill:#43e97b,color:#000
-    style C fill:#4facfe,color:#fff
-```
-
-### Complete Stack Table
-
-| Category | Technology | Purpose |
-|----------|-----------|---------|
-| **Frontend** | Streamlit | Web UI framework |
-| **Visualization** | Plotly, Leaflet | Charts and maps |
-| **Database** | PostgreSQL (Neon) | Data storage |
-| **Vector Store** | FAISS | Similarity search |
-| **LLM (All Tasks)** | Groq Llama 3.3 70B | Intent, SQL, Responses |
-| **Embeddings** | all-MiniLM-L6-v2 | Text embeddings |
-| **ORM** | SQLAlchemy | Database operations |
-| **Framework** | LangChain | RAG orchestration |
-| **Monitoring** | LangSmith | Query tracing |
-| **Data Processing** | Pandas, NumPy | Data manipulation |
+**Supporting tables**: `profile_summaries` (1,306 rows, used for vector embeddings), `query_logs`, `saved_queries`, `workflow_recipes`
 
 ---
 
-## 🚀 Performance Metrics
+## 🖥️ Dual Frontend
 
-### Query Processing Times
+FloatChat ships with **two independent frontends** that share the same FastAPI backend.
 
-```mermaid
-gantt
-    title Average Query Processing Time Breakdown
-    dateFormat YYYY-MM-DD
-    axisFormat %L
-    
-    section RAG Pipeline
-    Intent Classification (200ms)    :a1, 2024-01-01, 200ms
-    Vector Search (100ms)            :a2, after a1, 100ms
-    SQL Generation (800ms)           :a3, after a2, 800ms
-    Database Query (600ms)           :a4, after a3, 600ms
-    Response Generation (500ms)      :a5, after a4, 500ms
-    Visualization (300ms)            :a6, after a5, 300ms
-```
+### Frontend 1 — Next.js 16 (Production)
+- **Location**: `nexus-saa-s-ai-platform/`
+- **Deployed on**: Netlify → [peppy-pastelito-f38703.netlify.app](https://peppy-pastelito-f38703.netlify.app)
+- **Stack**: Next.js 16, React 19, TypeScript, Tailwind CSS, Radix UI
+- **Design**: Dark-mode terminal/SaaS aesthetic
+- **Features**: Chat interface, data tables with CSV export, response time display, conversation history
+- **Build**: `pnpm run build` → `.next/` (static + edge functions)
 
-| Stage | Average Time | Description |
-|-------|--------------|-------------|
-| **Intent Classification** | 200ms | Groq API call |
-| **Vector Search** | 100ms | FAISS similarity search |
-| **SQL Generation** | 800ms | Groq API + validation |
-| **Database Query** | 600ms | PostgreSQL execution |
-| **Response Generation** | 500ms | Format results with Groq |
-| **Visualization** | 300ms | Generate Plotly charts |
-| **Total Pipeline** | **~2.5s** | End-to-end query |
+### Frontend 2 — Streamlit (Scientific Dashboard)
+- **Location**: `streamlit_app/`
+- **Deployed on**: Streamlit Cloud → [floatchat-chat.streamlit.app](https://floatchat-chat.streamlit.app/)
+- **Stack**: Streamlit 1.31+, Plotly, Leaflet
+- **Design**: 5-tab scientific dashboard
+- **Tabs**:
+  1. **Chat** — conversational query interface
+  2. **Dashboard** — aggregate metrics & KPI cards
+  3. **Maps** — interactive Leaflet float location maps
+  4. **Analysis** — depth profiles, T-S diagrams, time series
+  5. **Export** — download filtered data as CSV
+
+Both frontends are fully independent — either can be used standalone.
 
 ---
 
-## 📈 System Capabilities
+## 📁 Project Structure
 
-### What FloatChat Can Do
-
-```mermaid
-%%{init: {'theme':'base', 'themeVariables': { 'primaryColor':'#667eea','primaryTextColor':'#fff','primaryBorderColor':'#5a67d8','lineColor':'#4facfe','secondaryColor':'#f093fb','tertiaryColor':'#43e97b'}}}%%
-mindmap
-    root((FloatChat<br/>Capabilities))
-        Data Queries
-            Temperature profiles
-            Salinity measurements
-            BGC parameters
-            Float locations
-            Historical data
-        Analysis
-            Regional comparisons
-            Water mass identification
-            Thermocline calculation
-            Mixed layer depth
-            Temporal trends
-            Profile statistics
-        Visualizations
-            Interactive maps
-            Depth profiles
-            Time series
-            T-S diagrams
-            Scatter plots
-            Heatmaps
-        Smart Features
-            Natural language
-            Context awareness
-            Conversation memory
-            Smart suggestions
-            Follow-up queries
+```
+FloatChat/
+├── api/
+│   └── main.py                  # FastAPI app, _rewrite_with_context(), /chat endpoint
+├── rag_engine/
+│   ├── query_processor.py       # 8-step RAG pipeline orchestrator
+│   ├── query_router.py          # Template / Simple / Complex routing
+│   ├── query_parser.py          # NL parsing, scope-broadening detection
+│   ├── hybrid_retriever.py      # FAISS + BM25 + RRF (k=60)
+│   ├── sql_generator.py         # Groq Llama 3.3 70B NL→SQL, schema pruning
+│   ├── response_generator.py    # Natural language response formatting
+│   ├── intent_classifier.py     # 8 intent categories
+│   └── semantic_cache.py        # Cosine cache, 30-min TTL, max 200 entries
+├── vector_store/
+│   ├── vector_db.py             # FAISSVectorStore (IndexFlatL2, 384-dim)
+│   └── embeddings.py            # all-MiniLM-L6-v2 wrapper
+├── mcp_server/
+│   └── argo_mcp_server.py       # 9 MCP tool registrations
+├── advanced_analytics/
+│   └── profile_analytics.py     # Thermocline, MLD, water mass, N²
+├── database/
+│   └── models.py                # SQLAlchemy ORM models (5 tables)
+├── data_processing/
+│   ├── netcdf_extractor.py      # NetCDF → PostgreSQL ETL (xarray)
+│   └── regions.py               # 6 Indian Ocean bounding boxes
+├── streamlit_app/               # Frontend 2: Streamlit scientific dashboard
+│   ├── app.py
+│   └── components/
+├── nexus-saa-s-ai-platform/     # Frontend 1: Next.js 16 SaaS UI (Netlify)
+│   ├── app/
+│   ├── components/
+│   ├── netlify.toml
+│   └── package.json
+├── netlify.toml                  # Root Netlify config (points to Next.js dir)
+├── requirements.txt
+└── README.md
 ```
 
 ---
 
-## 🎓 Example Queries
+## 🛠️ Tech Stack
 
-### Supported Query Types
-
-| Query Type | Example | MCP Tool Used |
-|------------|---------|---------------|
-| **General** | "Show me temperature data in Arabian Sea" | `query_argo_data` |
-| **Schema** | "What data is available?" | `get_database_schema` |
-| **Comparison** | "Compare salinity in Bay of Bengal vs Arabian Sea" | `compare_regions` |
-| **Analysis** | "Find the thermocline for float 2902746" | `calculate_thermocline` |
-| **Water Mass** | "Identify water masses between 100-500m" | `identify_water_masses` |
-| **Trends** | "Show temperature trends over last 5 years" | `get_temporal_trends` |
-| **Similarity** | "Find profiles similar to warm tropical water" | `search_similar_profiles` |
-| **Statistics** | "Analyze profile statistics for float 1901740" | `analyze_profile_statistics` |
-
----
-
-## 🔐 Security & Privacy
-
-- ✅ No hardcoded API keys in code
-- ✅ Environment variables for sensitive data
-- ✅ `.gitignore` configured properly
-- ✅ Secrets managed via Streamlit Cloud
-- ✅ Database uses SSL connections
-- ✅ Query logging for audit trails
+| Layer | Technology | Role |
+|-------|-----------|------|
+| **LLM** | Groq Llama 3.3 70B Versatile | SQL generation, intent classification, response formatting |
+| **Embeddings** | `sentence-transformers/all-MiniLM-L6-v2` (384-dim) | Profile semantic search |
+| **Dense Retrieval** | FAISS `IndexFlatL2` | k-NN similarity search |
+| **Sparse Retrieval** | BM25 (rank-bm25) | Keyword-based retrieval |
+| **Reranking** | Reciprocal Rank Fusion | Merge dense + sparse results |
+| **Backend API** | FastAPI + Uvicorn | REST `/chat`, `/health` endpoints |
+| **Database** | PostgreSQL 16 (Neon Cloud) | 1.27M measurement rows |
+| **ORM** | SQLAlchemy | Database models + queries |
+| **Frontend 1** | Next.js 16, React 19, TypeScript | SaaS chat UI (Netlify) |
+| **Frontend 2** | Streamlit 1.31+ | Scientific 5-tab dashboard |
+| **Visualization** | Plotly Express, Leaflet | Charts and maps (Streamlit) |
+| **Styling** | Tailwind CSS, Radix UI | Next.js frontend |
+| **Package Manager** | pnpm | Next.js build |
+| **NetCDF Parsing** | xarray | Raw ARGO file ingestion |
+| **Scientific** | NumPy, SciPy, Pandas | Analytics computations |
 
 ---
 
+## ⚙️ Local Development Setup
 
+### Prerequisites
+- Python 3.11+
+- Node.js 20+ and pnpm
+- A Neon PostgreSQL database (or local PostgreSQL)
+- A Groq API key (free at [console.groq.com](https://console.groq.com))
 
-| Metric | Count |
-|--------|-------|
-| **Total Lines of Code** | ~15,000 |
-| **Python Files** | 45+ |
-| **Components** | 12 |
-| **MCP Tools** | 9 |
-| **Database Tables** | 2 |
-| **Vector Embeddings** | 1,306 |
-| **Test Files** | 4 |
+### 1. Clone & Python setup
 
----
+```bash
+git clone https://github.com/Abuzaid-01/Float_Chat.git
+cd Float_Chat
 
-## 🎯 Key Innovations
+python -m venv venv
+source venv/bin/activate       # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+```
 
-1. **Hybrid RAG + MCP Architecture**
-   - Combines retrieval-augmented generation with Model Context Protocol
-   - Tool-based approach for specialized oceanographic operations
+### 2. Environment variables
 
-2. **Intent-Driven Routing**
-   - Smart classification between conversational and data queries
-   - Human-like responses for non-data questions
+Create a `.env` file in the project root (see [Environment Variables](#-environment-variables) below).
 
-3. **Conversation Memory**
-   - Maintains context across multiple turns
-   - Understands follow-up queries ("tell me more", "elaborate")
+### 3. Build the vector store
 
-4. **Synchronized Visualization**
-   - All tabs update based on query context
-   - Query-specific metrics (not entire database)
+```bash
+python -m vector_store.vector_db
+```
 
-5. **Semantic Profile Search**
-   - FAISS vector store for finding similar oceanographic profiles
-   - Enables "find profiles like X" queries
+### 4. Start the FastAPI backend
 
----
+```bash
+uvicorn api.main:app --reload --port 8000
+```
 
-## 📖 Documentation
+Backend will be available at `http://localhost:8000`  
+Swagger docs at `http://localhost:8000/docs`
 
-- ✅ **README.md** - Project overview and features
-- ✅ **DEPLOYMENT.md** - Complete deployment guide
-- ✅ **SETUP_INSTRUCTIONS.md** - Local development setup
-- ✅ **INTENT_CLASSIFICATION_GUIDE.md** - Intent system details
-- ✅ **PERFORMANCE_OPTIMIZATION_GUIDE.md** - Performance tips
-- ✅ **README_PROJECT_ARCHITECTURE.md** - This document
+### 5a. Run the Streamlit frontend
 
----
+```bash
+streamlit run streamlit_app/app.py
+```
 
+### 5b. Run the Next.js frontend
 
+```bash
+cd nexus-saa-s-ai-platform
+pnpm install
+pnpm run dev
+```
 
----
-
-## 📞 Support
-
-- **Documentation**: All `.md` files in root directory
-- **Issues**: Check DEPLOYMENT.md troubleshooting section
-- **Monitoring**: LangSmith dashboard for query traces
+Next.js app available at `http://localhost:3000`
 
 ---
 
-## 🏆 Achievements
+## 🔐 Environment Variables
 
-- ✅ **1.27M records** migrated and queryable
-- ✅ **2-3 second** average query response time
-- ✅ **92% reduction** in documentation clutter
-- ✅ **100%** test coverage for intent classification
-- ✅ **Zero downtime** deployment on Streamlit Cloud
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DATABASE_URL` | ✅ | Neon PostgreSQL connection string |
+| `GROQ_API_KEY` | ✅ | Groq API key for Llama 3.3 70B |
+| `NEXT_PUBLIC_API_URL` | ✅ (Next.js) | FastAPI backend URL (e.g. `https://your-backend.onrender.com`) |
+
+**Example `.env`:**
+```env
+DATABASE_URL=postgresql://user:password@host/dbname?sslmode=require
+GROQ_API_KEY=gsk_xxxxxxxxxxxx
+NEXT_PUBLIC_API_URL=https://your-backend.onrender.com
+```
+
+> ⚠️ Never commit `.env` to Git. It is already listed in `.gitignore`.
 
 ---
 
-**Built with ❤️ by Abuzaid
+## 🚀 Deployment
 
+### FastAPI Backend → Render
+
+1. Connect your GitHub repo on [render.com](https://render.com)
+2. **Build command**: `pip install -r requirements.txt`
+3. **Start command**: `uvicorn api.main:app --host 0.0.0.0 --port $PORT`
+4. Add environment variables: `DATABASE_URL`, `GROQ_API_KEY`
+
+### Next.js Frontend → Netlify
+
+Netlify is configured via `netlify.toml` at the repo root:
+
+```toml
+[build]
+  base    = "nexus-saa-s-ai-platform"
+  command = "pnpm run build"
+  publish = ".next"
+```
+
+1. Connect repo on [netlify.com](https://netlify.com)
+2. Add environment variable: `NEXT_PUBLIC_API_URL` → your Render backend URL
+3. Every push to `main` triggers an automatic deploy
+
+### Streamlit Dashboard → Streamlit Cloud
+
+1. Go to [share.streamlit.io](https://share.streamlit.io)
+2. Point to `streamlit_app/app.py`
+3. Add secrets: `DATABASE_URL`, `GROQ_API_KEY`
 
 ---
 
-*Last Updated: December 28, 2025*
+## 💬 Example Queries
+
+| Type | Example Query |
+|------|--------------|
+| **Temperature** | "What is the average temperature in the Arabian Sea in October 2025?" |
+| **Daily summary** | "Show me data for each day in October 2025" |
+| **Float profile** | "Show all measurements for float 2902746" |
+| **Regional comparison** | "Compare salinity between Bay of Bengal and Arabian Sea" |
+| **Thermocline** | "Calculate the thermocline depth for float 1901740 cycle 45" |
+| **Water masses** | "Identify water masses between 200 m and 800 m depth" |
+| **Trends** | "Show temperature trend over October 2025" |
+| **Semantic search** | "Find profiles similar to warm salty Arabian Sea water" |
+| **Mixed layer** | "What is the mixed layer depth for float 2902746?" |
+| **Schema** | "What data is available in the database?" |
+
+---
+
+## 🔒 Security
+
+- ✅ No hardcoded credentials in source code
+- ✅ All secrets via environment variables / `.env`
+- ✅ `.gitignore` covers `.env`, `*.pkl`, vector index files
+- ✅ Neon DB uses SSL connections (`sslmode=require`)
+- ✅ Query audit trail logged in `query_logs` table
+- ✅ Netlify environment variables stored encrypted
+
+---
+
+## 📈 Performance
+
+| Stage | Average Time |
+|-------|-------------|
+| Semantic cache hit | < 50 ms |
+| Intent classification | ~200 ms |
+| Hybrid retrieval (FAISS + BM25 + RRF) | ~120 ms |
+| SQL generation (Groq) | ~800 ms |
+| Database query (Neon) | ~600 ms |
+| Response generation (Groq) | ~500 ms |
+| **Total (cache miss)** | **~2–3 s** |
+| **Total (cache hit)** | **< 0.1 s** |
+
+---
+
+**Built with ❤️ by Abuzaid**
+
+---
+
+*Last Updated: November 2026*
