@@ -66,3 +66,4 @@ next-env.d.ts
 
 # Data cache
 data_cache/
+.venv
