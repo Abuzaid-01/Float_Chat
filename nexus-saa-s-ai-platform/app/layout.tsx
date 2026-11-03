@@ -1,8 +1,9 @@
 import React from "react";
 import type { Metadata } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
+import { Instrument_Serif, Inter, JetBrains_Mono } from "next/font/google";
 import { GeistPixelLine } from "geist/font/pixel";
 import "./globals.css";
+import "./observatory.css";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -12,6 +13,13 @@ const inter = Inter({
 const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
   variable: "--font-jetbrains",
+});
+
+const instrumentSerif = Instrument_Serif({
+  subsets: ["latin"],
+  weight: "400",
+  style: ["normal", "italic"],
+  variable: "--font-instrument",
 });
 
 export const metadata: Metadata = {
@@ -39,7 +47,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark scroll-smooth">
       <body
-        className={`${inter.variable} ${jetbrainsMono.variable} ${GeistPixelLine.variable} font-sans antialiased bg-background text-foreground`}
+        className={`${inter.variable} ${jetbrainsMono.variable} ${instrumentSerif.variable} ${GeistPixelLine.variable} font-sans antialiased bg-background text-foreground`}
       >
         {children}
       </body>

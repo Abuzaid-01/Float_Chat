@@ -9,9 +9,61 @@ import { useEffect, useRef, useState } from "react";
  * `prefers-reduced-motion`, and clean up their listeners on unmount.
  */
 
-function prefersReducedMotion(): boolean {
+export function prefersReducedMotion(): boolean {
   if (typeof window === "undefined") return false;
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+/**
+ * Counts from 0 up to `target` once `active` turns true, easing out. Returns
+ * the target immediately for reduced-motion users.
+ */
+export function useCountUp(target: number | null, active: boolean, duration = 1600) {
+  const [value, setValue] = useState(0);
+
+  useEffect(() => {
+    if (target === null || !active) return;
+    if (prefersReducedMotion()) {
+      setValue(target);
+      return;
+    }
+
+    let raf = 0;
+    const start = performance.now();
+    const tick = (now: number) => {
+      const progress = Math.min(1, (now - start) / duration);
+      setValue(target * (1 - Math.pow(1 - progress, 4)));
+      if (progress < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, active, duration]);
+
+  return target === null ? null : value;
+}
+
+/**
+ * Pointer-follow glow. Writes `--mx` / `--my` (px, relative to the element)
+ * so CSS can paint a radial highlight under the cursor.
+ */
+export function usePointerGlow<T extends HTMLElement = HTMLDivElement>() {
+  const ref = useRef<T | null>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    const onMove = (event: PointerEvent) => {
+      const rect = el.getBoundingClientRect();
+      el.style.setProperty("--mx", `${event.clientX - rect.left}px`);
+      el.style.setProperty("--my", `${event.clientY - rect.top}px`);
+    };
+
+    el.addEventListener("pointermove", onMove);
+    return () => el.removeEventListener("pointermove", onMove);
+  }, []);
+
+  return ref;
 }
 
 /**

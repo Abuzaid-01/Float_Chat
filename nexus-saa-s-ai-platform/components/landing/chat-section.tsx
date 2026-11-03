@@ -98,8 +98,7 @@ export function ChatSection() {
           content: m.text,
         }));
 
-      const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-      const res = await fetch(`${apiBase}/api/v1/chat`, {
+      const res = await fetch("http://localhost:8000/api/v1/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -130,12 +129,11 @@ export function ChatSection() {
         },
       ]);
     } catch (err: any) {
-      const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
       setMessages((prev) => [
         ...prev,
         {
           role: "ai",
-          text: `⚠️ **Connection Error**: ${err.message}. Make sure the FastAPI backend is running and reachable at \`${apiBase}\`.`,
+          text: `⚠️ **Connection Error**: ${err.message}. Make sure the FastAPI backend is running on \`http://localhost:8000\`.`,
         },
       ]);
     } finally {
@@ -210,7 +208,7 @@ export function ChatSection() {
             </div>
             <div className="flex items-center gap-2 font-mono text-[11px] text-emerald-400">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              Connected (FastAPI RAG)
+              Connected (FastAPI :8000)
             </div>
           </div>
 

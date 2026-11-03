@@ -1,10 +1,15 @@
 """
 FastAPI Server for FloatChat Backend.
 Provides:
-    - /api/v1/chat       — Full conversational RAG pipeline
-    - /api/v1/suggestions — Query suggestions
+    - /api/v1/chat           — Full conversational RAG pipeline
+    - /api/v1/suggestions    — Query suggestions
     - /api/v1/pipeline-stats — RAG component statistics
-    - /api/v1/health     — Server healthcheck
+    - /api/v1/health         — Server healthcheck
+    - plus the data routes in api/routes.py
+
+Endpoints are plain `def` functions on purpose: FastAPI runs those on a worker
+thread pool, so a slow question (LLM + database) no longer blocks health
+checks or other users.
 """
 
 import sys
@@ -15,215 +20,100 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
+from contextlib import asynccontextmanager
+from datetime import datetime
+from typing import List
 import time
 import logging
 import traceback
 
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
+
+from api import deps
+from api.middleware import RateLimitMiddleware
 from api.routes import router as existing_router
-from rag_engine.query_processor import QueryProcessor
-from rag_engine.response_generator import ResponseGenerator
-from rag_engine.intent_classifier import IntentClassifier
+from api.schemas import ChatRequest, ChatResponse
+from rag_engine.serialization import dataframe_to_records
 
 logger = logging.getLogger(__name__)
+
+# Rows sent to the client per answer.  The SQL may return more (see result_count).
+MAX_ROWS_IN_RESPONSE = 500
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Start loading the embedding model and index now, without delaying startup.
+    deps.warm_up()
+    yield
+
 
 app = FastAPI(
     title="FloatChat API",
     description="AI-powered conversational interface for ARGO ocean data",
-    version="2.0.0",
+    version="2.1.0",
+    lifespan=lifespan,
 )
 
-# CORS configuration
+
+def _cors_origins() -> List[str]:
+    """Comma-separated CORS_ORIGINS, or any origin when unset (the API uses no cookies)."""
+    configured = os.getenv("CORS_ORIGINS", "").strip()
+    return [origin.strip() for origin in configured.split(",") if origin.strip()] or ["*"]
+
+
+app.add_middleware(RateLimitMiddleware)
+# Added last so it wraps everything, including rate-limit rejections.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://localhost:3000",
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:3000",
-        "*",
-    ],
-    allow_credentials=True,
+    allow_origins=_cors_origins(),
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 app.include_router(existing_router)
 
-# Lazy singletons
-_query_processor: Optional[QueryProcessor] = None
-_response_generator: Optional[ResponseGenerator] = None
-_intent_classifier: Optional[IntentClassifier] = None
+
+def get_query_processor():
+    return deps.get_query_processor()
 
 
-def get_query_processor() -> QueryProcessor:
-    global _query_processor
-    if _query_processor is None:
-        _query_processor = QueryProcessor()
-    return _query_processor
+def get_intent_classifier():
+    return deps.get_intent_classifier()
 
 
-def get_response_generator() -> ResponseGenerator:
-    global _response_generator
-    if _response_generator is None:
-        _response_generator = ResponseGenerator()
-    return _response_generator
-
-
-def get_intent_classifier() -> IntentClassifier:
-    global _intent_classifier
-    if _intent_classifier is None:
-        _intent_classifier = IntentClassifier()
-    return _intent_classifier
-
-
-# Request / Response models
-class ChatRequest(BaseModel):
-    message: str
-    conversation_history: List[Dict[str, str]] = []
-
-
-class ChatResponse(BaseModel):
-    success: bool
-    response: str
-    intent: str = "data_query"
-    sql: Optional[str] = None
-    data: Optional[List[Dict]] = None
-    result_count: int = 0
-    execution_time: float = 0.0
-    route: Optional[str] = None
-    error: Optional[str] = None
-
-
-def _rewrite_with_context(
-    user_message: str,
-    conversation_history: List[Dict[str, str]],
-) -> str:
-    """Rewrite a vague follow-up into a self-contained query using conversation context.
-
-    This is the production fix for the follow-up problem: when a user asks
-    "tell me for oct 12 how many data you have?" and then follows up with
-    "how many data for each day", the second question is ambiguous — does
-    "each day" mean each day *within Oct 12* (nonsensical) or *across the
-    entire dataset*?  In real conversation it clearly means the latter, but
-    the SQL pipeline has no memory.  This function rewrites the follow-up
-    into a complete, unambiguous query the pipeline can execute correctly.
-
-    Rules:
-    - Only triggers when the message is short (< 15 words) AND conversation
-      history exists AND the message lacks explicit dates/regions.
-    - Uses a fast, low-temperature LLM call with strict instructions.
-    - If rewriting fails for any reason, returns the original message.
-    """
-    if not conversation_history:
-        return user_message
-
-    # Quick heuristic: only short, vague messages need rewriting.
-    word_count = len(user_message.split())
-    if word_count > 15:
-        return user_message
-
-    # If the message already contains explicit constraints, skip rewriting.
-    import re
-    has_explicit_date = bool(re.search(
-        r"\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\s+\d{1,2}\b",
-        user_message, re.IGNORECASE,
-    ))
-    has_explicit_region = bool(re.search(
-        r"\b(?:arabian|bengal|andaman|red\s+sea|indian\s+ocean|equatorial|southern)\b",
-        user_message, re.IGNORECASE,
-    ))
-    if has_explicit_date and has_explicit_region:
-        return user_message
-
-    # Build a compact conversation summary (last 4 turns).
-    recent = conversation_history[-4:]
-    turns = []
-    for msg in recent:
-        role = msg.get("role", "user")
-        content = msg.get("content", "")
-        # Truncate long assistant responses to save tokens.
-        if role == "assistant" and len(content) > 200:
-            content = content[:200] + "…"
-        turns.append(f"{role}: {content}")
-    convo_text = "\n".join(turns)
-
-    prompt = f"""You rewrite vague follow-up questions into self-contained ARGO oceanographic data queries.
-
-CONVERSATION SO FAR:
-{convo_text}
-
-NEW USER MESSAGE: "{user_message}"
-
-RULES:
-1. If the new message is already clear and self-contained, return it UNCHANGED.
-2. If it is a follow-up that refers to the previous conversation, rewrite it into a SINGLE self-contained query.
-3. CRITICAL: If the user says "each day", "all days", "every day", "all data", "for all", "entire dataset", etc. — they want to REMOVE any date/region filter from the previous question, NOT keep it. The rewritten query must NOT include the previous date constraint.
-4. Preserve the user's intent exactly. Do not add constraints they didn't ask for.
-5. Return ONLY the rewritten query text, nothing else. No explanation, no quotes, no markdown.
-
-REWRITTEN QUERY:"""
-
-    try:
-        import os
-        from groq import Groq
-
-        api_key = os.getenv("GROQ_API_KEY")
-        if not api_key:
-            return user_message
-
-        client = Groq(api_key=api_key, timeout=10, max_retries=1)
-        resp = client.chat.completions.create(
-            model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.0,
-            max_completion_tokens=150,
-        )
-        rewritten = resp.choices[0].message.content.strip()
-
-        # Sanity check: don't accept empty or suspiciously long rewrites.
-        if not rewritten or len(rewritten) > 500:
-            return user_message
-
-        # Strip wrapping quotes if the LLM added them.
-        if (rewritten.startswith('"') and rewritten.endswith('"')) or \
-           (rewritten.startswith("'") and rewritten.endswith("'")):
-            rewritten = rewritten[1:-1].strip()
-
-        logger.info(f"🔄 Query rewritten: '{user_message}' → '{rewritten}'")
-        return rewritten
-
-    except Exception as e:
-        logger.warning(f"Query rewrite failed (using original): {e}")
-        return user_message
+def _fallback_answer(result: dict) -> str:
+    """Plain answer for when the LLM could not write one; the data is still returned."""
+    count = result.get("result_count", 0)
+    total = (result.get("summary") or {}).get("total_matching")
+    if count == 0:
+        return "No data matched this question. Try a different region, float, depth range or date."
+    if total and total > count:
+        return f"{total:,} measurements match; the newest {count:,} are shown in the table below."
+    return f"Found {count:,} record{'s' if count != 1 else ''} matching your question. They are shown in the table below."
 
 
 @app.post("/api/v1/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
+def chat(request: ChatRequest):
     """
     Full chat pipeline:
     1. Classify intent (greeting/help/data_query)
-    2. If data_query → rewrite follow-ups into self-contained queries
-    3. Run enhanced RAG pipeline
-    4. Generate natural language response
-    5. Return response + data + SQL
+    2. If data_query → run the RAG pipeline, with the conversation as context
+    3. Return the answer together with the rows, the SQL and how it was understood
     """
     start_time = time.time()
     user_message = request.message.strip()
+    history = [{"role": turn.role, "content": turn.content} for turn in request.conversation_history]
 
     if not user_message:
-        raise HTTPException(status_code=400, detail="Empty message")
+        return ChatResponse(success=False, response="Please type a question.", error="Empty message")
 
     try:
-        classifier = get_intent_classifier()
-
         # Step 1: Classify intent
-        intent_result = classifier.classify_intent(
-            user_message, request.conversation_history
-        )
+        intent_result = get_intent_classifier().classify_intent(user_message, history)
         intent = intent_result.get("intent", "data_query")
         requires_data = intent_result.get("requires_data_query", True)
 
@@ -236,14 +126,9 @@ async def chat(request: ChatRequest):
                 execution_time=time.time() - start_time,
             )
 
-        # Step 3: Rewrite vague follow-ups into self-contained queries
-        effective_query = _rewrite_with_context(
-            user_message, request.conversation_history
-        )
-
-        # Step 4: RAG pipeline execution
-        processor = get_query_processor()
-        result = processor.process_query(effective_query)
+        # Step 3: RAG pipeline (retrieval → SQL → database → grounded answer).
+        # The pipeline writes the answer itself; it is not generated again here.
+        result = get_query_processor().process_query(user_message, history=history)
 
         if not result["success"]:
             return ChatResponse(
@@ -255,73 +140,34 @@ async def chat(request: ChatRequest):
                 execution_time=time.time() - start_time,
             )
 
-        # Step 5: AI Response Generation
-        response_gen = get_response_generator()
         results_df = result["results"]
-        sql_query = result.get("sql", "")
-
-        similar = result.get("similar_profiles", [])
-        context = ""
-        if similar:
-            context_parts = [f"{i}. {m.get('summary_text', '')}" for i, (_, m) in enumerate(similar[:3], 1)]
-            context = "\n".join(context_parts)
-
-        try:
-            ai_response = response_gen.generate_response(user_message, results_df, context)
-        except Exception as resp_err:
-            logger.warning(f"Response generation error: {resp_err}")
-            ai_response = f"Found {len(results_df)} records matching your query."
-
-        # Step 6: Data Serialization
-        data_records = None
-        if not results_df.empty:
-            df_serializable = results_df.head(500).copy()
-            def _clean_field_val(val):
-                if isinstance(val, bytes):
-                    try:
-                        return val.decode("utf-8").strip()
-                    except Exception:
-                        return str(val).strip()
-                if isinstance(val, str):
-                    s = val.strip()
-                    if (s.startswith("b'") and s.endswith("'")) or (s.startswith('b"') and s.endswith('"')):
-                        return s[2:-1].strip()
-                    return s
-                return val
-
-            for col in df_serializable.columns:
-                if df_serializable[col].dtype == "datetime64[ns]":
-                    df_serializable[col] = df_serializable[col].astype(str)
-                elif df_serializable[col].dtype == "object":
-                    df_serializable[col] = df_serializable[col].apply(_clean_field_val)
-                elif hasattr(df_serializable[col].dtype, "kind") and df_serializable[col].dtype.kind == "f":
-                    df_serializable[col] = df_serializable[col].round(4)
-
-            data_records = df_serializable.to_dict("records")
-
         return ChatResponse(
             success=True,
-            response=ai_response,
+            response=result.get("response") or _fallback_answer(result),
             intent="data_query",
-            sql=sql_query,
-            data=data_records,
+            sql=result.get("sql", ""),
+            data=dataframe_to_records(results_df, MAX_ROWS_IN_RESPONSE) or None,
             result_count=len(results_df),
             execution_time=time.time() - start_time,
             route=result.get("route"),
+            interpretation=result.get("interpretation"),
+            summary=result.get("summary"),
+            analysis=result.get("analysis"),
+            cached=bool(result.get("cached")),
         )
 
     except Exception as e:
         logger.error(f"Chat endpoint error: {traceback.format_exc()}")
         return ChatResponse(
             success=False,
-            response=f"Sorry, an error occurred: {str(e)}",
-            error=str(e),
+            response="Sorry, something went wrong while answering that. Please try again.",
+            error=f"{type(e).__name__}: {str(e)[:300]}",
             execution_time=time.time() - start_time,
         )
 
 
 @app.get("/api/v1/pipeline-stats")
-async def pipeline_stats():
+def pipeline_stats():
     """Return component statistics."""
     try:
         processor = get_query_processor()
@@ -330,30 +176,72 @@ async def pipeline_stats():
         return {"success": False, "error": str(e)}
 
 
+_suggestion_cache = deps.TTLCache(ttl_seconds=3600)
+
+
+def _example_float_id() -> str:
+    """A float that really exists in the data, so the example questions always work."""
+    cached = _suggestion_cache.get("float")
+    if cached:
+        return cached
+    try:
+        with deps.get_db().engine.connect() as connection:
+            row = connection.execute(text(
+                "SELECT float_id FROM argo_profiles "
+                "WHERE float_id IS NOT NULL AND ocean_region = 'Arabian Sea' "
+                "GROUP BY float_id ORDER BY COUNT(*) DESC LIMIT 1"
+            )).fetchone()
+            if row is None:
+                row = connection.execute(text(
+                    "SELECT float_id FROM argo_profiles WHERE float_id IS NOT NULL LIMIT 1"
+                )).fetchone()
+        if row:
+            return _suggestion_cache.set("float", str(row[0]))
+    except Exception as error:
+        logger.warning(f"Could not pick an example float: {error}")
+    return ""
+
+
 @app.get("/api/v1/suggestions")
-async def get_suggestions():
-    """Return suggested queries."""
-    return {
-        "suggestions": [
-            {"text": "Show temperature in Arabian Sea", "category": "geographic"},
-            {"text": "Compare Arabian Sea and Bay of Bengal", "category": "comparison"},
-            {"text": "How many floats are there?", "category": "statistics"},
-            {"text": "Show profiles deeper than 1000 meters", "category": "depth"},
-            {"text": "Show temperature profile for float 2902696", "category": "float"},
-            {"text": "Find dissolved oxygen data", "category": "bgc"},
+def get_suggestions():
+    """Return suggested queries.  Each one is answerable from the current data."""
+    suggestions = [
+        {"text": "Show temperature in Arabian Sea", "category": "geographic"},
+        {"text": "Compare Arabian Sea and Bay of Bengal", "category": "comparison"},
+        {"text": "How many floats are there?", "category": "statistics"},
+        {"text": "How does temperature change with depth in the Bay of Bengal?", "category": "depth"},
+    ]
+    float_id = _example_float_id()
+    if float_id:
+        suggestions += [
+            {"text": f"Show temperature profile for float {float_id}", "category": "float"},
+            {"text": f"Calculate thermocline depth for float {float_id}", "category": "analysis"},
         ]
-    }
+    else:
+        suggestions += [
+            {"text": "Which region is the warmest?", "category": "comparison"},
+            {"text": "What is the date range of the dataset?", "category": "statistics"},
+        ]
+    return {"suggestions": suggestions}
 
 
 @app.get("/api/v1/health")
-async def health_check():
-    """Health check endpoint."""
-    return {
+def health_check(deep: bool = False):
+    """
+    Health check.  Cheap by default; `?deep=true` also checks the database.
+    """
+    body = {
         "status": "healthy",
-        "service": "FloatChat Backend API v2.0",
-        "components": {
-            "query_processor": _query_processor is not None,
-            "response_generator": _response_generator is not None,
-            "intent_classifier": _intent_classifier is not None,
-        },
+        "service": "FloatChat Backend API v2.1",
+        "timestamp": datetime.now().isoformat(),
+        "components": deps.loaded_components(),
     }
+    if deep:
+        try:
+            with deps.get_db().engine.connect() as connection:
+                connection.execute(text("SELECT 1"))
+            body["database"] = "reachable"
+        except Exception as error:
+            body["status"] = "degraded"
+            body["database"] = f"unreachable: {str(error)[:200]}"
+    return body
