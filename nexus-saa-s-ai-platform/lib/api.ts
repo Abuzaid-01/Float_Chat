@@ -122,7 +122,9 @@ export type ChatResponse = {
 export type ChatTurn = { role: "user" | "assistant"; content: string };
 
 export const API_BASE_URL = (
-  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  "http://localhost:8000"
 ).replace(/\/$/, "");
 
 /** Short timeout for lookups; the chat pipeline (LLM + database) needs far longer. */

@@ -20,6 +20,7 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Reveal } from "./reveal";
+import { API_BASE_URL } from "@/lib/api";
 
 function cleanMarkdown(text: string): string {
   if (!text) return "";
@@ -98,7 +99,7 @@ export function ChatSection() {
           content: m.text,
         }));
 
-      const res = await fetch("http://localhost:8000/api/v1/chat", {
+      const res = await fetch(`${API_BASE_URL}/api/v1/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -133,7 +134,7 @@ export function ChatSection() {
         ...prev,
         {
           role: "ai",
-          text: `⚠️ **Connection Error**: ${err.message}. Make sure the FastAPI backend is running on \`http://localhost:8000\`.`,
+          text: `⚠️ **Connection Error**: ${err.message}. Make sure the FastAPI backend is reachable at \`${API_BASE_URL}\`.`,
         },
       ]);
     } finally {
