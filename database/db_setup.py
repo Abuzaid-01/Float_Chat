@@ -1,5 +1,6 @@
 import os
 from sqlalchemy import create_engine
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
 from database.models import Base
@@ -22,8 +23,12 @@ class DatabaseSetup:
                 "Please add DATABASE_URL to Streamlit Cloud Settings → Secrets"
             )
         
-        connect_args = {"connect_timeout": 5} if self.database_url.startswith("postgresql") else {}
-        self.engine = create_engine(self.database_url, pool_pre_ping=True, connect_args=connect_args)
+        url = make_url(self.database_url)
+        # Use the installed driver for standard Neon URLs across SQLAlchemy versions.
+        if url.drivername == "postgresql":
+            url = url.set(drivername="postgresql+psycopg2")
+        connect_args = {"connect_timeout": 5} if url.get_backend_name() == "postgresql" else {}
+        self.engine = create_engine(url, pool_pre_ping=True, connect_args=connect_args)
         self.SessionLocal = sessionmaker(bind=self.engine)
     
     def create_tables(self):

@@ -9,6 +9,20 @@ from sqlalchemy import create_engine
 
 from api import deps
 from api.main import app
+from database.db_setup import DatabaseSetup
+
+
+def test_standard_neon_url_uses_installed_postgresql_driver(monkeypatch):
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql://reader@db.example.invalid/archive?sslmode=require&channel_binding=require",
+    )
+    db = DatabaseSetup()
+    try:
+        assert db.engine.dialect.driver == "psycopg2"
+        assert db.engine.url.query == {"sslmode": "require", "channel_binding": "require"}
+    finally:
+        db.engine.dispose()
 
 
 @pytest.fixture
