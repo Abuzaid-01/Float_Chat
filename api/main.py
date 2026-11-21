@@ -25,7 +25,6 @@ from datetime import datetime
 from typing import List
 import time
 import logging
-import traceback
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -41,6 +40,7 @@ logger = logging.getLogger(__name__)
 
 # Rows sent to the client per answer.  The SQL may return more (see result_count).
 MAX_ROWS_IN_RESPONSE = 500
+MAX_PROFILE_ROWS_IN_RESPONSE = 5000
 
 
 @asynccontextmanager
@@ -141,27 +141,29 @@ def chat(request: ChatRequest):
             )
 
         results_df = result["results"]
+        row_limit = MAX_PROFILE_ROWS_IN_RESPONSE if result.get("analysis") else MAX_ROWS_IN_RESPONSE
         return ChatResponse(
             success=True,
             response=result.get("response") or _fallback_answer(result),
             intent="data_query",
             sql=result.get("sql", ""),
-            data=dataframe_to_records(results_df, MAX_ROWS_IN_RESPONSE) or None,
+            data=dataframe_to_records(results_df, row_limit) or None,
             result_count=len(results_df),
             execution_time=time.time() - start_time,
             route=result.get("route"),
             interpretation=result.get("interpretation"),
             summary=result.get("summary"),
             analysis=result.get("analysis"),
+            retrieval=result.get("retrieval", []),
             cached=bool(result.get("cached")),
         )
 
-    except Exception as e:
-        logger.error(f"Chat endpoint error: {traceback.format_exc()}")
+    except Exception:
+        logger.exception("Chat endpoint error")
         return ChatResponse(
             success=False,
             response="Sorry, something went wrong while answering that. Please try again.",
-            error=f"{type(e).__name__}: {str(e)[:300]}",
+            error="The query service could not complete this request.",
             execution_time=time.time() - start_time,
         )
 
@@ -239,9 +241,9 @@ def health_check(deep: bool = False):
     if deep:
         try:
             with deps.get_db().engine.connect() as connection:
-                connection.execute(text("SELECT 1"))
+                connection.execute(text("SELECT 1 FROM argo_profiles LIMIT 1"))
             body["database"] = "reachable"
-        except Exception as error:
+        except Exception:
             body["status"] = "degraded"
-            body["database"] = f"unreachable: {str(error)[:200]}"
+            body["database"] = "archive unavailable"
     return body

@@ -295,7 +295,7 @@ function ProfileChart({
         <div>
           <b>{measure.label} against depth</b>
           <span>
-            {shown.length === 1 ? shown[0].label : `${shown.length} profiles`}
+            {shown.length === 1 ? shown[0].label : `${shown.length} ${binned ? "regions" : "profiles"}`}
             {hidden > 0 && ` · ${hidden} more in the table`}
           </span>
         </div>

@@ -13,14 +13,6 @@ type PipelineProps = {
   lastQuery: CompletedQuery | null;
 };
 
-/** Shown until the visitor has run a query of their own. */
-const EXAMPLE = {
-  question: "Show temperature in Arabian Sea",
-  sql: "SELECT float_id, cycle_number, latitude, longitude, timestamp, pressure, temperature FROM argo_profiles WHERE ocean_region IN ('Arabian Sea') AND temperature IS NOT NULL ORDER BY timestamp DESC, pressure ASC LIMIT 1000;",
-  rows: 1000,
-  answer: "Temperatures fall from about 28.8 °C near the surface to roughly 8.5 °C at depth across the returned measurements.",
-};
-
 function plainText(markdown: string) {
   return markdown
     .replace(/\|.*\|/g, " ")
@@ -76,26 +68,27 @@ export function Pipeline({ telemetry, stats, lastQuery }: PipelineProps) {
     };
   }, []);
 
-  const question = lastQuery?.question ?? EXAMPLE.question;
-  const sql = lastQuery?.result.sql ?? (lastQuery ? null : EXAMPLE.sql);
-  const rowCount = lastQuery ? (lastQuery.result.result_count ?? 0) : EXAMPLE.rows;
+  const question = lastQuery?.question;
+  const sql = lastQuery?.result.sql;
+  const rowCount = lastQuery?.result.result_count;
   const seconds = lastQuery?.result.execution_time;
-  const answer = lastQuery ? plainText(lastQuery.result.response) : EXAMPLE.answer;
+  const answer = lastQuery ? plainText(lastQuery.result.response) : null;
   const generator = telemetry?.stats?.sql_generator;
-  const route = lastQuery?.result.route ?? (lastQuery ? null : "rules");
+  const route = lastQuery?.result.route;
   const understood = lastQuery?.result.interpretation;
+  const sources = lastQuery?.result.retrieval ?? [];
   const indexLoaded = telemetry?.stats?.vector_store_loaded;
 
   const steps = [
     {
       icon: Split,
       title: "Classify",
-      body: "A greeting or a help request gets a direct reply. Anything about the data is routed into the retrieval pipeline.",
+      body: "FloatChat identifies whether a request needs archive data and resolves filters such as region, date, float, and pressure.",
       label: "question",
       artifact: (
         <>
-          <q>{clip(question, 90)}</q>
-          <span>intent → {lastQuery?.result.intent ?? "data_query"}</span>
+          {question ? <q>{clip(question, 90)}</q> : <span>Ask a data question to see the trace.</span>}
+          {lastQuery?.result.intent && <span>intent → {lastQuery.result.intent}</span>}
           {understood && <span>understood as → {clip(understood, 110)}</span>}
         </>
       ),
@@ -103,24 +96,21 @@ export function Pipeline({ telemetry, stats, lastQuery }: PipelineProps) {
     {
       icon: Radar,
       title: "Retrieve",
-      body: "The question is embedded with all-MiniLM-L6-v2 and matched against profile summaries in a FAISS index. The three nearest are passed on as context for writing SQL.",
+      body: "For free-form questions, FAISS and BM25 retrieve relevant profile summaries to guide SQL. Structured questions use the parsed filters directly.",
       label: "vector search",
       artifact: (
         <>
-          <span>384-dimension embedding · top 3 neighbours</span>
-          <span>
-            index →{" "}
-            {indexLoaded === undefined ? "status unknown" : indexLoaded ? "loaded" : "not loaded"}
-          </span>
+          <span>{route === "rules" ? "Structured query · retrieval skipped" : sources.length ? "Profile summaries retrieved · " + sources.length : "Profile-summary index"}</span>
+          {sources.length > 0 && <span>{sources.map((source) => source.float_id ?? "Unlabelled profile").join(" · ")}</span>}
         </>
       ),
     },
     {
       icon: Code2,
       title: "Generate",
-      body: "Questions the rules fully understand — regions, floats, depths, dates, counts, comparisons — become SQL without a model. Anything else goes to the language model. Either way only one SELECT on the ARGO table may run, inside a read-only transaction.",
+      body: "Questions the rules fully understand — regions, floats, depths, dates, counts, comparisons — become SQL without a model. Anything else goes to the language model. Archive queries run in a read-only PostgreSQL transaction.",
       label: route === "llm" ? "sql · written by the language model" : route === "rules" ? "sql · built by rules" : "sql",
-      artifact: sql ? <code>{clip(sql.replace(/\s+/g, " "), 230)}</code> : <span>No SQL was needed for this reply.</span>,
+      artifact: sql ? <code>{clip(sql.replace(/\s+/g, " "), 230)}</code> : <span>SQL appears after an archive query.</span>,
     },
     {
       icon: Database,
@@ -131,9 +121,9 @@ export function Pipeline({ telemetry, stats, lastQuery }: PipelineProps) {
       label: "rows",
       artifact: (
         <>
-          <span>
-            {rowCount.toLocaleString("en-US")} {rowCount === 1 ? "row" : "rows"} returned
-          </span>
+          {rowCount !== undefined && (
+            <span>{rowCount.toLocaleString("en-US")} {rowCount === 1 ? "row" : "rows"} returned</span>
+          )}
           <span>table → argo_profiles</span>
         </>
       ),
@@ -141,11 +131,11 @@ export function Pipeline({ telemetry, stats, lastQuery }: PipelineProps) {
     {
       icon: MessageSquareText,
       title: "Answer",
-      body: "The language model writes the reply from the returned rows and from totals over everything the filters matched. The rows and the SQL travel back with it so you can check the claim yourself.",
+      body: "FloatChat formats the reply from the SQL results or the computed analysis. The associated rows and SQL are available in the result panel.",
       label: "answer",
       artifact: (
         <>
-          <q>{clip(answer, 190)}</q>
+          {answer && <q>{clip(answer, 190)}</q>}
           {typeof seconds === "number" && <span>{seconds.toFixed(1)} s from question to answer</span>}
         </>
       ),
@@ -168,7 +158,7 @@ export function Pipeline({ telemetry, stats, lastQuery }: PipelineProps) {
           <p>
             {lastQuery
               ? "This is the trail left by your last question, step by step."
-              : "An example trail is shown below. Ask a question in the workspace and this section replays yours."}
+              : "Ask a data question in the workspace to see how FloatChat answered it."}
           </p>
         </div>
       </Reveal>
@@ -204,7 +194,7 @@ export function Pipeline({ telemetry, stats, lastQuery }: PipelineProps) {
               <dd>{generator ? formatCount(generator.llm_built ?? 0) : "—"}</dd>
             </div>
             <div>
-              <dt>Failed to generate</dt>
+              <dt>Failed queries</dt>
               <dd>{generator ? formatCount(generator.failed_queries) : "—"}</dd>
             </div>
             <div>

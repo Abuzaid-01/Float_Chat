@@ -8,13 +8,15 @@ Enhanced with:
 - SQL Validation and Safety Checks
 """
 
-import os
 import re
 from typing import Dict, Optional, List, Tuple
-from groq import Groq
 from langchain_core.prompts import PromptTemplate
 from dotenv import load_dotenv
 import logging
+
+from data_processing.regions import REGION_BOUNDS
+from rag_engine import llm_config
+from rag_engine.sql_validation import is_read_only_argo_select, limit_model_query
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -31,7 +33,7 @@ class EnhancedSQLGenerator:
     
     PRIMARY COLUMNS:
     ├─ id (SERIAL PRIMARY KEY) - Unique record identifier
-    ├─ float_id (VARCHAR) - Float identifier (format: "b'XXXXXX '")
+    ├─ float_id (VARCHAR) - Float identifier (format: canonical digits)
     ├─ cycle_number (INTEGER) - Measurement cycle number
     ├─ latitude (FLOAT) - Latitude in decimal degrees (-90 to 90)
     ├─ longitude (FLOAT) - Longitude in decimal degrees (-180 to 180)
@@ -96,32 +98,9 @@ class EnhancedSQLGenerator:
     }
 
     def __init__(self):
-        api_key = None
-        model = None
-        try:
-            import streamlit as st
-            if "GROQ_API_KEY" in st.secrets:
-                api_key = st.secrets["GROQ_API_KEY"]
-            if "GROQ_MODEL" in st.secrets:
-                model = st.secrets["GROQ_MODEL"]
-        except Exception:
-            pass
-
-        if not api_key:
-            api_key = os.getenv("GROQ_API_KEY")
-        if not model:
-            model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
-
-        self.client = Groq(api_key=api_key)
-        self.model = model
+        self.client = llm_config.make_client()
+        self.model = llm_config.setting("GROQ_MODEL", llm_config.DEFAULT_MODEL)
         self.prompt_template = self._create_enhanced_prompt()
-        self.query_cache = {}
-        self.stats = {
-            "total_queries": 0,
-            "cache_hits": 0,
-            "failed_queries": 0,
-            "avg_complexity": 0,
-        }
         logger.info("✅ Enhanced SQL Generator initialized with Groq")
 
     def _create_enhanced_prompt(self) -> PromptTemplate:
@@ -144,30 +123,27 @@ Time Period: {time_period}
 
 CRITICAL SQL GENERATION RULES:
 
-1. FLOAT ID FORMAT (CRITICAL - COMMON ERROR):
-   - Float IDs are stored as: "b'XXXXXX '" (with b' prefix, trailing space)
-   - Users query with plain numbers: "1901514" or "2902696"
-   - ALWAYS use LIKE pattern matching, NOT exact equality
-   - Correct: WHERE float_id LIKE '%1901514%'
-   - Wrong: WHERE float_id = '1901514' (returns 0 rows!)
+1. FLOAT IDENTIFIERS:
+   - Canonical float IDs are plain digits. Use exact equality, for example float_id = '2902696'.
 
 2. QUALITY CONTROL:
-   - Default: WHERE temp_qc IN (1,2,3) AND sal_qc IN (1,2,3)
-   - ALWAYS filter by QC unless explicitly asked not to
+   - For temperature or salinity analysis use the respective QC flag in (1, 2), unless raw values were requested.
+   - For general archive counts, count the requested rows or identifiers without a QC filter.
+   - A profile is identified by float ID and cycle number. Measurement rows are individual pressure levels.
 
-3. SPATIAL BOUNDS:
-   - Arabian Sea: latitude BETWEEN 5 AND 30 AND longitude BETWEEN 40 AND 80
-   - Bay of Bengal: latitude BETWEEN 5 AND 25 AND longitude BETWEEN 80 AND 100
-   - Equatorial Indian Ocean: latitude BETWEEN -10 AND 5 AND longitude BETWEEN 40 AND 100
+3. SPATIAL FILTERS:
+   - Use ocean_region with its canonical name for named-region questions.
+   - Apply every requested coordinate, pressure, and measurement-value constraint.
 
-4. TEMPORAL QUERIES:
-   - Exact date: timestamp::date = 'YYYY-MM-DD'
-   - Date range: timestamp BETWEEN 'YYYY-MM-DD' AND 'YYYY-MM-DD'
-   - Recent data: timestamp >= CURRENT_DATE - INTERVAL '30 days'
+4. TEMPORAL FILTERS:
+   - Use inclusive start and exclusive end timestamps.
+   - Relative dates use the latest observation in the supplied archive range.
+   - Keep constraints explicitly stated in the current question. Reuse earlier filters only for a clear follow-up.
+   - Treat profile summaries as descriptive context. Values reported to the user must come from SQL results.
 
 5. OUTPUT FORMAT:
    - Return ONLY ONE valid PostgreSQL SQL statement
-   - No markdown backticks (no ```)
+   - No comments or markdown fences (no ```)
    - No explanations before or after
    - No CTEs (WITH clauses) - use direct SELECT only
    - End with a single semicolon
@@ -177,18 +153,17 @@ EXAMPLE QUERIES:
 -- Recent Arabian Sea data with good QC
 SELECT latitude, longitude, timestamp, pressure, temperature, salinity
 FROM argo_profiles
-WHERE latitude BETWEEN 5 AND 30
-  AND longitude BETWEEN 40 AND 80
-  AND temp_qc IN (1,2,3)
-  AND sal_qc IN (1,2,3)
+WHERE ocean_region = 'Arabian Sea'
+  AND temp_qc IN (1,2)
+  AND sal_qc IN (1,2)
 ORDER BY timestamp DESC
 LIMIT 1000;
 
 -- Float trajectory
 SELECT cycle_number, pressure, temperature, salinity
 FROM argo_profiles
-WHERE float_id LIKE '%2902696%'
-  AND temp_qc IN (1,2,3)
+WHERE float_id = '2902696'
+  AND temp_qc IN (1,2)
 ORDER BY cycle_number ASC, pressure ASC
 LIMIT 1000;
 
@@ -211,33 +186,14 @@ RESPOND WITH ONLY THE SQL QUERY (ONE STATEMENT, NO EXPLANATIONS):"""
         self,
         user_query: str,
         context: str = "",
-        force_regenerate: bool = False,
         few_shot_examples: Optional[List[Dict]] = None,
         query_plan: Optional[Dict] = None,
     ) -> Optional[str]:
         """
         Generate SQL with dynamic schema pruning, few-shot examples, and caching.
         """
-        self.stats["total_queries"] += 1
-        cache_key = f"{user_query}:{context}"
-        if not force_regenerate and cache_key in self.query_cache:
-            self.stats["cache_hits"] += 1
-            return self.query_cache[cache_key]
-
         try:
             analysis = self._analyze_query(user_query)
-
-            # Spatial / Nearest distance check
-            if analysis["type"] == "nearest" or any(
-                kw in user_query.lower() for kw in ["nearest", "closest", "within"]
-            ):
-                lat, lon = self._extract_coordinates_from_query(user_query)
-                if lat is not None and lon is not None:
-                    radius_km = self._extract_radius_from_query(user_query)
-                    sql_query = self._generate_spatial_query(lat, lon, radius_km)
-                    if self.validate_sql(sql_query):
-                        self.query_cache[cache_key] = sql_query
-                        return sql_query
 
             # Dynamic Schema Pruning (Context Window Optimization)
             relevant_schema = self._build_relevant_schema(analysis)
@@ -289,16 +245,13 @@ RESPOND WITH ONLY THE SQL QUERY (ONE STATEMENT, NO EXPLANATIONS):"""
 
             if not self.validate_sql(sql):
                 logger.error("❌ Generated SQL failed validation")
-                self.stats["failed_queries"] += 1
                 return None
 
             sql = self._optimize_query(sql, analysis)
-            self.query_cache[cache_key] = sql
             return sql
 
         except Exception as e:
-            logger.error(f"❌ SQL generation error: {e}")
-            self.stats["failed_queries"] += 1
+            logger.warning("SQL generation error: %s", type(e).__name__)
             return None
 
     def _build_relevant_schema(self, analysis: Dict) -> str:
@@ -307,19 +260,19 @@ RESPOND WITH ONLY THE SQL QUERY (ONE STATEMENT, NO EXPLANATIONS):"""
         relevant to the current query. Saves ~57% tokens on simple queries.
         """
         detected_params = set(analysis.get("parameters", []))
-        detected_region = analysis.get("region", "Not specified")
         query_type = analysis.get("type", "general")
 
         lines = [
-            "Table: argo_profiles (1.2M+ records)",
+            "Table: argo_profiles (one row per pressure-level measurement)",
             "",
             "PRIMARY COLUMNS:",
             "├─ id (SERIAL PRIMARY KEY)",
-            "├─ float_id (VARCHAR) - Float identifier (format: \"b'XXXXXX '\")",
+            "├─ float_id (VARCHAR) - Float identifier (format: canonical digits)",
             "├─ cycle_number (INTEGER) - Measurement cycle number",
             "├─ latitude (FLOAT) - Decimal degrees (-90 to 90)",
             "├─ longitude (FLOAT) - Decimal degrees (-180 to 180)",
             "├─ timestamp (TIMESTAMP) - UTC measurement datetime",
+            "├─ ocean_region (VARCHAR) - Canonical region name",
             "├─ pressure (FLOAT) - Water pressure in dbar (≈ depth in m)",
         ]
 
@@ -366,25 +319,7 @@ RESPOND WITH ONLY THE SQL QUERY (ONE STATEMENT, NO EXPLANATIONS):"""
             lines.append("├─ platform_type (VARCHAR) - ARGO, BGC-ARGO, etc.")
 
         # Ocean regions
-        all_regions = {
-            "Arabian Sea": ("5°N to 30°N", "40°E to 80°E"),
-            "Bay of Bengal": ("5°N to 25°N", "80°E to 100°E"),
-            "Equatorial Indian Ocean": ("10°S to 5°N", "40°E to 100°E"),
-            "Southern Indian Ocean": ("50°S to 10°S", "20°E to 120°E"),
-            "Red Sea": ("12°N to 30°N", "32°E to 44°E"),
-            "Andaman Sea": ("5°N to 20°N", "92°E to 100°E"),
-        }
-
-        if detected_region != "Not specified" and detected_region in all_regions:
-            lines.append("")
-            lines.append("RELEVANT OCEAN REGION:")
-            lat, lon = all_regions[detected_region]
-            lines.append(f"  {detected_region}: Lat {lat}, Lon {lon}")
-        elif query_type in ("geographic", "comparison", "general") or detected_region == "Not specified":
-            lines.append("")
-            lines.append("OCEAN REGIONS:")
-            for name, (lat, lon) in all_regions.items():
-                lines.append(f"  {name}: Lat {lat}, Lon {lon}")
+        lines.append("Canonical ocean regions: " + ", ".join(bounds[0] for bounds in REGION_BOUNDS))
 
         return "\n".join(lines)
 
@@ -403,18 +338,14 @@ RESPOND WITH ONLY THE SQL QUERY (ONE STATEMENT, NO EXPLANATIONS):"""
                 analysis["type"] = qtype
                 break
 
-        regions = {
-            "arabian sea": "Arabian Sea",
-            "bay of bengal": "Bay of Bengal",
-            "bengal": "Bay of Bengal",
-            "arabian": "Arabian Sea",
-            "equatorial": "Equatorial Indian Ocean",
-            "southern ocean": "Southern Indian Ocean",
-            "indian ocean": "Indian Ocean",
-        }
-        for keyword, name in regions.items():
-            if keyword in query_lower:
-                analysis["region"] = name
+        for region, lat_min, lat_max, lon_min, lon_max in REGION_BOUNDS:
+            if re.search(rf"\b{re.escape(region.lower())}\b", query_lower):
+                analysis.update(region=region, lat_range=(lat_min, lat_max), lon_range=(lon_min, lon_max))
+                break
+
+        for unit, days in (("week", 7), ("month", 30)):
+            if re.search(rf"\b(?:last|past|previous) {unit}\b", query_lower):
+                analysis["time_period"] = f"Last {days} days of the archive"
                 break
 
         param_keywords = {
@@ -426,7 +357,7 @@ RESPOND WITH ONLY THE SQL QUERY (ONE STATEMENT, NO EXPLANATIONS):"""
             "ph": ["ph", "acidity", "alkalinity"],
         }
         for param, keywords in param_keywords.items():
-            if any(kw in query_lower for kw in keywords):
+            if any(re.search(rf"\b{re.escape(kw)}\b", query_lower) for kw in keywords):
                 analysis["parameters"].append(param)
 
         return analysis
@@ -463,35 +394,13 @@ LIMIT 1000;"""
     def _clean_sql(self, sql: str) -> str:
         sql = re.sub(r"```sql\s*", "", sql, flags=re.IGNORECASE)
         sql = re.sub(r"```\s*", "", sql)
-        lines = [l for l in sql.split("\n") if not l.strip().startswith("--")]
-        sql = " ".join(lines).strip()
+        sql = sql.strip()
         if not sql.endswith(";"):
             sql += ";"
         return sql
 
     def _optimize_query(self, sql: str, analysis: Dict) -> str:
-        if "LIMIT" not in sql.upper():
-            sql = sql.rstrip(";") + " LIMIT 1000;"
-        return sql
+        return limit_model_query(sql)
 
     def validate_sql(self, sql: str) -> bool:
-        if not sql or len(sql) < 10:
-            return False
-        sql_upper = sql.upper()
-        dangerous = ["DROP", "DELETE", "INSERT", "UPDATE", "TRUNCATE", "ALTER", "CREATE", "GRANT"]
-        for kw in dangerous:
-            if kw in sql_upper:
-                return False
-        if not sql_upper.strip().startswith("SELECT"):
-            return False
-        if "ARGO_PROFILES" not in sql_upper:
-            return False
-        return True
-
-    def get_statistics(self) -> Dict:
-        total = max(self.stats["total_queries"], 1)
-        hit_rate = (self.stats["cache_hits"] / total) * 100
-        return {
-            **self.stats,
-            "cache_hit_rate": f"{hit_rate:.1f}%",
-        }
+        return is_read_only_argo_select(sql)

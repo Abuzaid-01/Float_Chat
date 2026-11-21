@@ -34,7 +34,7 @@ def get_db() -> DatabaseSetup:
 def get_query_processor():
     def build():
         from rag_engine.query_processor import QueryProcessor
-        return QueryProcessor()
+        return QueryProcessor(get_db())
     return _get("query_processor", build)
 
 
@@ -48,7 +48,7 @@ def get_intent_classifier():
 def get_analytics():
     def build():
         from advanced_analytics.profile_analytics import AdvancedProfileAnalytics
-        return AdvancedProfileAnalytics()
+        return AdvancedProfileAnalytics(get_db())
     return _get("analytics", build)
 
 
@@ -62,7 +62,9 @@ def warm_up() -> None:
     def load():
         try:
             get_intent_classifier()
-            get_query_processor().get_dataset_range()
+            processor = get_query_processor()
+            processor.get_dataset_range()
+            processor.warm_retrieval()
         except Exception as error:  # the first real request will surface the problem
             print(f"⚠️  Warm-up failed: {error}")
 

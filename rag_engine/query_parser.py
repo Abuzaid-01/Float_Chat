@@ -23,6 +23,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
 TABLE = "argo_profiles"
+PROFILE_COUNT = "COUNT(DISTINCT float_id || ':' || CAST(cycle_number AS text))"
 
 # Canonical region names stored in argo_profiles.ocean_region.
 REGION_ALIASES: List[Tuple[str, str]] = [
@@ -277,7 +278,11 @@ def _parse_dates(scan: _Scanner, spec: QuerySpec, anchor: Optional[datetime]) ->
     if found:
         dates = sorted(date for _, date in found)
         day = timedelta(days=1)
-        if len(dates) >= 2:
+        if len(dates) > 2 or (
+            len(dates) == 2 and not re.search(r"\b(?:between|from|through|until|to)\b", original)
+        ):
+            return False
+        if len(dates) == 2:
             spec.date_from, spec.date_to = dates[0], dates[-1] + day
         elif re.search(r"\b(before|until|up\s+to|prior\s+to)\b", original):
             spec.date_to = dates[0]
@@ -431,6 +436,15 @@ def _parse_values_and_depth(scan: _Scanner, spec: QuerySpec) -> bool:
         add_value("salinity", ">", float(match.group(1)))
     for match in scan.take_all(rf"{_LT}\s*{_NUM}\s*psu\b"):
         add_value("salinity", "<", float(match.group(1)))
+
+    # dbar is a pressure reading, so "below 100 dbar" is a numeric comparison.
+    # "Below 100 m" describes depth and means farther down in the water column.
+    for pattern, operator in [
+        (r"(?:below|under|less\s+than|<)", "<"),
+        (r"(?:above|over|greater\s+than|>)", ">"),
+    ]:
+        for match in scan.take_all(rf"{pattern}\s*{_NUM}\s*dbar\b"):
+            add_value("pressure", operator, float(match.group(1)))
 
     # Depth ranges and thresholds (pressure in dbar ≈ depth in metres).
     match = scan.take(
@@ -661,8 +675,12 @@ def merge_context(
         spec.date_from, spec.date_to = previous.date_from, previous.date_to
 
     # --- Depth scope ---------------------------------------------------------
-    if spec.depth_min is None and spec.depth_max is None and not broadening:
+    if (
+        spec.depth_min is None and spec.depth_max is None and not broadening
+        and not any(column == "pressure" for column, _, _ in spec.value_filters)
+    ):
         spec.depth_min, spec.depth_max = previous.depth_min, previous.depth_max
+        spec.value_filters.extend(item for item in previous.value_filters if item[0] == "pressure")
 
     # --- Parameters ----------------------------------------------------------
     if not spec.parameters:
@@ -793,31 +811,26 @@ def _where(conditions: List[str]) -> str:
     return f" WHERE {' AND '.join(conditions)}" if conditions else ""
 
 
-def _stat_columns(parameters: List[str]) -> str:
+def _stat_columns(parameters: List[str]) -> List[str]:
     columns = ["COUNT(*) AS measurement_count"]
     for parameter in parameters:
         columns += [
-            f"ROUND(AVG({parameter})::numeric, 3)::float8 AS average_{parameter}",
-            f"ROUND(MIN({parameter})::numeric, 3)::float8 AS minimum_{parameter}",
-            f"ROUND(MAX({parameter})::numeric, 3)::float8 AS maximum_{parameter}",
+            f"ROUND(CAST(AVG({parameter}) AS numeric), 3) AS average_{parameter}",
+            f"ROUND(CAST(MIN({parameter}) AS numeric), 3) AS minimum_{parameter}",
+            f"ROUND(CAST(MAX({parameter}) AS numeric), 3) AS maximum_{parameter}",
         ]
-    return ", ".join(columns)
+    return columns
 
 
 def _summary_sql(where: str, parameters: List[str]) -> str:
     columns = [
         "COUNT(*) AS total_matching",
         "COUNT(DISTINCT float_id) AS floats",
-        "COUNT(DISTINCT (float_id, cycle_number)) FILTER (WHERE float_id IS NOT NULL) AS profiles",
+        f"{PROFILE_COUNT} AS profiles",
         "MIN(timestamp) AS earliest",
         "MAX(timestamp) AS latest",
     ]
-    for parameter in parameters:
-        columns += [
-            f"ROUND(AVG({parameter})::numeric, 3)::float8 AS average_{parameter}",
-            f"ROUND(MIN({parameter})::numeric, 3)::float8 AS minimum_{parameter}",
-            f"ROUND(MAX({parameter})::numeric, 3)::float8 AS maximum_{parameter}",
-        ]
+    columns.extend(_stat_columns(parameters)[1:])
     return f"SELECT {', '.join(columns)} FROM {TABLE}{where};"
 
 
@@ -905,7 +918,7 @@ def _build(spec: QuerySpec) -> Optional[BuiltQuery]:
         where = _where(_conditions(spec, measured, with_qc=False))
         columns = (
             "COUNT(DISTINCT float_id) AS float_count, "
-            "COUNT(DISTINCT (float_id, cycle_number)) FILTER (WHERE float_id IS NOT NULL) AS profile_count, "
+            f"{PROFILE_COUNT} AS profile_count, "
             "COUNT(*) AS measurement_count"
         )
         if spec.group_by == "region":
@@ -945,12 +958,12 @@ def _build(spec: QuerySpec) -> Optional[BuiltQuery]:
         conditions = _conditions(spec, [], with_qc=False) + ["float_id IS NOT NULL"]
         sql = (
             "SELECT float_id, COUNT(DISTINCT cycle_number) AS cycle_count, COUNT(*) AS measurement_count, "
-            "ROUND(AVG(latitude)::numeric, 4)::float8 AS latitude, ROUND(AVG(longitude)::numeric, 4)::float8 AS longitude, "
+            "ROUND(CAST(AVG(latitude) AS numeric), 4) AS latitude, ROUND(CAST(AVG(longitude) AS numeric), 4) AS longitude, "
             "MAX(timestamp) AS last_seen "
             f"FROM {TABLE}{_where(conditions)} GROUP BY float_id ORDER BY last_seen DESC, float_id LIMIT 1000;"
         )
         summary = (
-            "SELECT COUNT(DISTINCT float_id) AS floats, COUNT(DISTINCT (float_id, cycle_number)) FILTER (WHERE float_id IS NOT NULL) AS profiles, "
+            f"SELECT COUNT(DISTINCT float_id) AS floats, {PROFILE_COUNT} AS profiles, "
             f"COUNT(*) AS total_matching FROM {TABLE}{_where(conditions)};"
         )
         return BuiltQuery(sql, "float_list", description, summary)
@@ -961,21 +974,22 @@ def _build(spec: QuerySpec) -> Optional[BuiltQuery]:
         conditions = _conditions(spec, [], with_qc=False)
         sql = (
             "SELECT float_id, cycle_number, MIN(timestamp) AS timestamp, "
-            "ROUND(AVG(latitude)::numeric, 4)::float8 AS latitude, ROUND(AVG(longitude)::numeric, 4)::float8 AS longitude, "
-            "COUNT(*) AS measurement_count, ROUND(MAX(pressure)::numeric, 1)::float8 AS deepest_pressure "
+            "ROUND(CAST(AVG(latitude) AS numeric), 4) AS latitude, ROUND(CAST(AVG(longitude) AS numeric), 4) AS longitude, "
+            "COUNT(*) AS measurement_count, ROUND(CAST(MAX(pressure) AS numeric), 1) AS deepest_pressure "
             f"FROM {TABLE}{_where(conditions)} GROUP BY float_id, cycle_number ORDER BY timestamp, cycle_number LIMIT 1000;"
         )
         return BuiltQuery(sql, "trajectory", description)
 
     if spec.intent == "profile_analysis":
-        # One complete, quality-controlled profile: the named one, else the newest in scope.
-        scope = _conditions(spec, [], with_qc=False) + ["float_id IS NOT NULL"]
-        quality = [] if spec.include_bad_qc else [f"temp_qc IN {GOOD_QC}", f"sal_qc IN {GOOD_QC}"]
+        # Select a single cast that has enough usable readings inside the requested scope.
+        required = ["temperature", "salinity"] if spec.analysis == "water_masses" else ["temperature"]
+        scope = _conditions(spec, required) + ["float_id IS NOT NULL", "cycle_number IS NOT NULL", "pressure IS NOT NULL"]
         chosen = (
-            f"(float_id, cycle_number) IN (SELECT float_id, cycle_number FROM {TABLE}{_where(scope)} "
-            "GROUP BY float_id, cycle_number HAVING COUNT(*) >= 20 ORDER BY MAX(timestamp) DESC LIMIT 1)"
+            f"(float_id, cycle_number, timestamp) IN (SELECT float_id, cycle_number, timestamp FROM {TABLE}{_where(scope)} "
+            "GROUP BY float_id, cycle_number, timestamp HAVING COUNT(DISTINCT pressure) >= 10 "
+            "ORDER BY timestamp DESC, float_id, cycle_number DESC LIMIT 1)"
         )
-        conditions = [chosen, "temperature IS NOT NULL", "salinity IS NOT NULL"] + quality
+        conditions = [chosen] + scope
         sql = (
             "SELECT float_id, cycle_number, latitude, longitude, timestamp, pressure, temperature, salinity "
             f"FROM {TABLE}{_where(conditions)} ORDER BY pressure ASC LIMIT 5000;"
@@ -990,7 +1004,7 @@ def _build(spec: QuerySpec) -> Optional[BuiltQuery]:
         if spec.intent == "compare" and group is None:
             group = "float" if len(spec.float_ids) > 1 else "region"
         conditions = _conditions(spec, stat_parameters)
-        columns = _stat_columns(stat_parameters)
+        columns = ", ".join(_stat_columns(stat_parameters))
         first_average = f"average_{stat_parameters[0]}"
         if group == "region":
             if spec.intent == "extreme" and not spec.regions:
@@ -1009,10 +1023,11 @@ def _build(spec: QuerySpec) -> Optional[BuiltQuery]:
         elif group == "depth":
             span = (spec.depth_max if spec.depth_max is not None else 2000.0) - (spec.depth_min or 0.0)
             size = 25 if span <= 300 else 50 if span <= 1000 else 100
+            region = "ocean_region, " if spec.intent == "compare" and len(spec.regions) > 1 else ""
             sql = (
-                f"SELECT (FLOOR(pressure / {size}) * {size})::int AS depth_bin, {columns} "
+                f"SELECT {region}CAST(FLOOR(pressure / {size}) * {size} AS integer) AS depth_bin, {columns} "
                 f"FROM {TABLE}{_where(conditions + ['pressure IS NOT NULL'])} "
-                "GROUP BY depth_bin ORDER BY depth_bin LIMIT 500;"
+                f"GROUP BY {region}depth_bin ORDER BY depth_bin{', ocean_region' if region else ''} LIMIT 500;"
             )
         else:
             sql = f"SELECT {columns} FROM {TABLE}{_where(conditions)};"

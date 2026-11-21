@@ -2,6 +2,8 @@
 Advanced oceanographic profile analytics
 """
 
+from datetime import timedelta
+
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Tuple
@@ -282,8 +284,8 @@ class AdvancedProfileAnalytics:
             'complexity': 'high' if n_layers >= 4 else 'moderate' if n_layers >= 2 else 'low'
         }
     
-    def __init__(self):
-        self.db_setup = DatabaseSetup()
+    def __init__(self, db_setup=None):
+        self.db_setup = db_setup or DatabaseSetup()
     
     
     def calculate_thermocline_advanced(self, df: pd.DataFrame) -> Dict:
@@ -360,7 +362,8 @@ class AdvancedProfileAnalytics:
         
         # Calculate mixed layer depth (MLD)
         # Using temperature criterion: 0.2°C difference from surface
-        mld_temp_criterion = df[np.abs(df['temperature'] - surface_temp) > 0.2]['pressure'].iloc[0] if any(np.abs(df['temperature'] - surface_temp) > 0.2) else 10.0
+        mixed_layer_boundary = df.loc[temp_diff_from_surface > 0.2, 'pressure']
+        mld_temp_criterion = mixed_layer_boundary.iloc[0] if not mixed_layer_boundary.empty else None
         
         # Identify seasonal vs permanent thermocline
         # Seasonal: typically in upper 100m
@@ -425,8 +428,8 @@ class AdvancedProfileAnalytics:
             'thermocline_depth_temp_criterion_dbar': float(thermocline_depth_alt),
             
             # Mixed layer
-            'mixed_layer_depth_dbar': float(mld_temp_criterion),
-            'mixed_layer_depth_m': float(mld_temp_criterion * 1.0),
+            'mixed_layer_depth_dbar': float(mld_temp_criterion) if mld_temp_criterion is not None else None,
+            'mixed_layer_depth_m': float(mld_temp_criterion) if mld_temp_criterion is not None else None,
             'mixed_layer_temperature': float(surface_temp_mean),
             
             # Layer temperatures
@@ -711,47 +714,59 @@ class AdvancedProfileAnalytics:
             }
     
     def trend_analysis(self, region: str, parameter: str, days: int = 90) -> Dict:
-        """Analyze trends over time (whitelisted + bounded — injection-safe)"""
-        from data_processing.regions import ALLOWED_PARAMETERS
+        """Calculate weekly means over the latest observations in the archive."""
+        from data_processing.regions import ALLOWED_PARAMETERS, KNOWN_REGIONS
 
         if parameter not in ALLOWED_PARAMETERS:
-            return {
-                "success": False,
-                "error": f"Unsupported parameter: {parameter}. Allowed: {sorted(ALLOWED_PARAMETERS)}"
-            }
+            return {"success": False, "error": f"Unsupported parameter: {parameter}."}
+        region_name = next((name for name in KNOWN_REGIONS if name.casefold() == region.strip().casefold()), None)
+        if region_name is None:
+            return {"success": False, "error": "Specify a named ocean region from the archive."}
+        if not 1 <= days <= 3650:
+            return {"success": False, "error": "Choose a window of 1 to 3,650 days."}
 
-        session = self.db_setup.get_session()
-        
+        qc_column = {"temperature": "temp_qc", "salinity": "sal_qc"}.get(parameter)
+        quality = f"AND {qc_column} IN (1, 2)" if qc_column else ""
         query = text(f"""
-        SELECT DATE_TRUNC('week', timestamp) as week,
-               AVG({parameter}) as avg_value,
-               COUNT(*) as measurements
-        FROM argo_profiles
-        WHERE ocean_region ILIKE :region
-          AND timestamp >= CURRENT_DATE - INTERVAL :days
-          AND {parameter} IS NOT NULL
-        GROUP BY DATE_TRUNC('week', timestamp)
-        ORDER BY week
+            SELECT DATE(timestamp) AS observation_day, SUM({parameter}) AS total, COUNT(*) AS measurements
+            FROM argo_profiles
+            WHERE ocean_region = :region AND timestamp >= :start_time AND timestamp < :end_time
+              AND {parameter} IS NOT NULL {quality}
+            GROUP BY DATE(timestamp)
+            ORDER BY DATE(timestamp)
         """)
-        
-        df = pd.read_sql(query, session.bind, params={"region": f"%{region}%", "days": f"{int(days)} days"})
-        session.close()
-        
-        if len(df) < 2:
-            return {"success": False, "message": "Insufficient data"}
-        
-        # Calculate trend
-        x = np.arange(len(df))
-        y = df['avg_value'].values
-        
-        slope, intercept, r_value, p_value, std_err = stats.linregress(x, y)
-        
+        with self.db_setup.engine.begin() as connection:
+            if connection.dialect.name == "postgresql":
+                connection.exec_driver_sql("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+                connection.exec_driver_sql("SET LOCAL statement_timeout = '12s'")
+            latest = connection.execute(text("SELECT MAX(timestamp) FROM argo_profiles")).scalar_one()
+            if latest is None:
+                return {"success": False, "error": "The measurement archive is empty."}
+            end = pd.Timestamp(latest).normalize() + timedelta(days=1)
+            start = end - timedelta(days=days)
+            daily = pd.read_sql(query, connection, params={
+                "region": region_name, "start_time": start.to_pydatetime(), "end_time": end.to_pydatetime()
+            })
+
+        if daily.empty:
+            return {"success": False, "error": "No observations matched the region, parameter, and date window."}
+        daily["week"] = pd.to_datetime(daily["observation_day"]).dt.to_period("W-SUN").dt.start_time
+        weekly = daily.groupby("week")[["total", "measurements"]].sum()
+        weekly["average"] = weekly["total"] / weekly["measurements"]
+        if len(weekly) < 2:
+            return {"success": False, "error": "At least two weeks of observations are required for a trend."}
+
+        elapsed_weeks = (weekly.index - weekly.index[0]).days.to_numpy() / 7
+        slope, _, correlation, p_value, _ = stats.linregress(elapsed_weeks, weekly["average"].to_numpy())
         return {
-            "region": region,
+            "success": True,
+            "region": region_name,
             "parameter": parameter,
-            "trend": "increasing" if slope > 0 else "decreasing",
+            "start": start.date().isoformat(),
+            "end": (end - timedelta(days=1)).date().isoformat(),
+            "trend": "stable" if slope == 0 else ("increasing" if slope > 0 else "decreasing"),
             "slope": float(slope),
-            "r_squared": float(r_value ** 2),
-            "significant": p_value < 0.05,
-            "weeks_analyzed": len(df)
+            "r_squared": float(correlation ** 2),
+            "significant": bool(p_value < 0.05),
+            "weeks_analyzed": len(weekly),
         }

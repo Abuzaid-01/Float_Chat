@@ -1,57 +1,55 @@
-#!/bin/bash
-
-# Navigate to FloatChat directory
+#!/usr/bin/env bash
+set -euo pipefail
 cd "$(dirname "$0")"
 
-echo "=================================================="
-echo "🌊 Starting FloatChat AI Backend & Frontend"
-echo "=================================================="
+backend_port="$(printenv API_PORT || printf 8000)"
+frontend_port="$(printenv FRONTEND_PORT || printf 3000)"
+backend_pid=""
+frontend_pid=""
 
-# Function to handle cleanup on exit
 cleanup() {
-    echo ""
-    echo "🛑 Shutting down servers..."
-    kill $(jobs -p) 2>/dev/null
-    lsof -ti:8000 | xargs kill -9 2>/dev/null || true
-    lsof -ti:3000 | xargs kill -9 2>/dev/null || true
-    exit 0
+    [ -z "$backend_pid" ] || kill "$backend_pid" 2>/dev/null || true
+    [ -z "$frontend_pid" ] || kill "$frontend_pid" 2>/dev/null || true
 }
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
-trap cleanup SIGINT SIGTERM EXIT
+if [ ! -x .venv/bin/python ] || [ ! -f nexus-saa-s-ai-platform/node_modules/next/dist/bin/next ]; then
+    printf '%s\n' "Install the Python and Next.js dependencies before starting FloatChat." >&2
+    exit 1
+fi
 
-# 0. Clean up any existing processes on ports 8000 and 3000
-echo "🧹 Freeing ports 8000 & 3000 if in use..."
-lsof -ti:8000 | xargs kill -9 2>/dev/null || true
-lsof -ti:3000 | xargs kill -9 2>/dev/null || true
-sleep 1
-
-# 1. Start Backend (FastAPI on Port 8000)
-echo "🚀 [1/2] Starting FastAPI Backend on port 8000..."
-source .venv/bin/activate
-uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload &
-BACKEND_PID=$!
-
-# Wait for backend health check
-echo "⏳ Waiting for backend to initialize..."
-until curl -s http://localhost:8000/api/v1/health > /dev/null 2>&1; do
+.venv/bin/python -m uvicorn api.main:app --host 127.0.0.1 --port "$backend_port" &
+backend_pid=$!
+for (( attempt=0; attempt<30; attempt++ )); do
+    if ! kill -0 "$backend_pid" 2>/dev/null; then
+        printf '%s\n' "The backend exited during startup." >&2
+        exit 1
+    fi
+    if curl --max-time 1 --fail --silent "http://127.0.0.1:$backend_port/api/v1/health" > /dev/null; then
+        break
+    fi
     sleep 1
 done
-echo "✅ Backend is UP & running at http://localhost:8000"
+if (( attempt == 30 )); then
+    printf '%s\n' "The backend health check timed out." >&2
+    exit 1
+fi
 
-# 2. Start Frontend (Next.js on Port 3000)
-echo "✨ [2/2] Starting Next.js Frontend on port 3000..."
 cd nexus-saa-s-ai-platform
-pnpm dev --port 3000 &
-FRONTEND_PID=$!
+if ! printenv NEXT_PUBLIC_API_BASE_URL > /dev/null && ! printenv NEXT_PUBLIC_API_URL > /dev/null; then
+    export NEXT_PUBLIC_API_BASE_URL="http://127.0.0.1:$backend_port"
+fi
+node node_modules/next/dist/bin/next dev --hostname 127.0.0.1 --port "$frontend_port" &
+frontend_pid=$!
+printf 'FloatChat http://127.0.0.1:%s · API http://127.0.0.1:%s/docs\n' "$frontend_port" "$backend_port"
 
-echo ""
-echo "=================================================="
-echo "🎉 FloatChat AI is Ready!"
-echo "👉 Frontend App:  http://localhost:3000"
-echo "👉 Backend API:   http://localhost:8000"
-echo "👉 API Swagger:   http://localhost:8000/docs"
-echo "=================================================="
-echo "💡 Press Ctrl+C anytime to stop both servers."
-echo ""
-
-wait
+while kill -0 "$backend_pid" 2>/dev/null && kill -0 "$frontend_pid" 2>/dev/null; do
+    sleep 1
+done
+if ! kill -0 "$backend_pid" 2>/dev/null; then
+    wait "$backend_pid"
+else
+    wait "$frontend_pid"
+fi

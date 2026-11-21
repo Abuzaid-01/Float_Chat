@@ -1,5 +1,6 @@
-import pandas as pd
 from sqlalchemy import func
+
+from data_processing.regions import classify_ocean_region
 from database.db_setup import DatabaseSetup
 from database.models import ArgoProfile, ProfileSummary
 
@@ -65,34 +66,18 @@ class ProfileSummarizer:
         """Create natural language summary"""
         date_str = profile.timestamp.strftime("%B %d, %Y")
         
-        # Determine region
-        region = self._get_region(profile.latitude, profile.longitude)
-        
-        summary = (
-            f"ARGO float {profile.float_id} profile from {date_str} "
-            f"at location {profile.latitude:.2f}°N, {profile.longitude:.2f}°E "
-            f"in the {region}. "
-            f"Measurements from {profile.min_depth:.1f}m to {profile.max_depth:.1f}m depth. "
+        region = classify_ocean_region(profile.latitude, profile.longitude) or "an unclassified ocean region"
+        lat = f"{abs(profile.latitude):.2f}°{'N' if profile.latitude >= 0 else 'S'}"
+        lon = f"{abs(profile.longitude):.2f}°{'E' if profile.longitude >= 0 else 'W'}"
+        return (
+            f"ARGO float {profile.float_id}, cycle {profile.cycle_number}, measured on {date_str} "
+            f"at {lat}, {lon} in {region}. "
+            f"Pressure from {profile.min_depth:.1f} to {profile.max_depth:.1f} dbar. "
             f"Temperature range: {profile.min_temp:.2f}°C to {profile.max_temp:.2f}°C "
-            f"(average {profile.avg_temp:.2f}°C). "
+            f"(mean {profile.avg_temp:.2f}°C). "
             f"Salinity range: {profile.min_sal:.2f} to {profile.max_sal:.2f} PSU "
-            f"(average {profile.avg_sal:.2f} PSU)."
+            f"(mean {profile.avg_sal:.2f} PSU)."
         )
-        
-        return summary
-    
-    def _get_region(self, lat: float, lon: float) -> str:
-        """Determine ocean region based on coordinates"""
-        if 5 <= lat <= 30 and 40 <= lon <= 100:
-            return "Arabian Sea"
-        elif -10 <= lat <= 25 and 60 <= lon <= 100:
-            return "Bay of Bengal"
-        elif -30 <= lat <= 30 and 30 <= lon <= 120:
-            return "Indian Ocean"
-        elif -60 <= lat <= -30 and 20 <= lon <= 180:
-            return "Southern Ocean"
-        else:
-            return "Ocean"
 
 # Usage
 if __name__ == "__main__":

@@ -249,7 +249,7 @@ export function ResultLens({ result }: { result: ChatResponse }) {
             {formatCount(total, 1_000_000)} {total === 1 ? "row" : "rows"}
           </span>
           {typeof result.execution_time === "number" && (
-            <span>{result.cached ? "cached" : `${result.execution_time.toFixed(1)} s`}</span>
+            <span>{result.execution_time.toFixed(1)} s{result.cached ? " · reused SQL" : ""}</span>
           )}
           {rows.length > 0 && (
             <button type="button" className="icon-text-button" onClick={exportRows}>
@@ -279,6 +279,19 @@ export function ResultLens({ result }: { result: ChatResponse }) {
       )}
 
       {result.analysis && <AnalysisPanel analysis={result.analysis} />}
+      {!!result.retrieval?.length && (
+        <details className="result-lens__note">
+          <summary>Profile summaries used to guide SQL</summary>
+          <ol>
+            {result.retrieval.map((source) => (
+              <li key={source.rank}>
+                {source.float_id && <b>Float {source.float_id} · </b>}
+                {source.summary}
+              </li>
+            ))}
+          </ol>
+        </details>
+      )}
 
       {view === "chart" && hasChart && (
         <div className="result-lens__panel">

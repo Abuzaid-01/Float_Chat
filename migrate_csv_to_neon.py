@@ -3,6 +3,7 @@
 Fast migration using CSV files directly
 """
 
+import os
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -13,10 +14,12 @@ from database.models import Base
 from tqdm import tqdm
 
 # Neon connection string
-NEON_DB = "postgresql://neondb_owner:npg_8yOoZiL1bJpW@ep-purple-bread-a83vjb6i-pooler.eastus2.azure.neon.tech/neondb?sslmode=require"
+NEON_DB = os.getenv("NEON_DATABASE_URL")
 
 def upload_from_csv():
     """Upload data from CSV files to Neon"""
+    if not NEON_DB:
+        raise SystemExit("Set NEON_DATABASE_URL before running this migration.")
     print("🚀 FAST MIGRATION TO NEON FROM CSV FILES")
     print("="*70)
     
@@ -118,11 +121,11 @@ def upload_from_csv():
     print("📝 NEXT STEPS:")
     print("="*70)
     print("\n1. Update .env file:")
-    print(f"   DATABASE_URL={NEON_DB}")
+    print("   Set DATABASE_URL to your Neon connection string.")
     print("\n2. Create Streamlit secrets.toml file:")
     print("   [Create in Streamlit Cloud Dashboard]")
-    print(f'   DATABASE_URL = "{NEON_DB}"')
-    print(f'   GOOGLE_API_KEY = "your_api_key"')
+    print("   Set DATABASE_URL to your Neon connection string.")
+    print('   GROQ_API_KEY = "your-groq-api-key"')
     print("\n3. Upload vector_store files to GitHub:")
     print("   - data/vector_store/index.faiss")
     print("   - data/vector_store/metadata.pkl")

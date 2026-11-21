@@ -78,6 +78,13 @@ class TestValidateSqlAccepts:
         )
         assert generator.validate_sql(sql) is True
 
+    def test_accepts_median_over_argo_measurements(self, generator):
+        sql = (
+            "SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY salinity) AS median_salinity "
+            "FROM argo_profiles WHERE ocean_region = 'Arabian Sea';"
+        )
+        assert generator.validate_sql(sql) is True
+
 
 class TestSpatialQuery:
     def test_generates_valid_sql_with_coordinates(self, generator):

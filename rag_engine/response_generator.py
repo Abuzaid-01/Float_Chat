@@ -1,38 +1,21 @@
-import os
 from typing import Dict
-from groq import Groq
 from langchain_core.prompts import PromptTemplate
 import pandas as pd
 import re
 
+from rag_engine import llm_config
+
 
 class ResponseGenerator:
     """
-    Generate natural language responses using Groq (Llama 3.3).
+    Generate natural language responses using Groq.
     Enhanced with natural, ChatGPT-like tone.
     """
     
     def __init__(self):
-        api_key = None
-        model = None
-        try:
-            import streamlit as st
-            if "GROQ_API_KEY" in st.secrets:
-                api_key = st.secrets["GROQ_API_KEY"]
-            if "GROQ_MODEL" in st.secrets:
-                model = st.secrets["GROQ_MODEL"]
-        except Exception:
-            pass
+        self.model = llm_config.setting("GROQ_MODEL", llm_config.DEFAULT_MODEL)
+        self.client = llm_config.make_client() if llm_config.setting("GROQ_API_KEY") else None
 
-        if not api_key:
-            api_key = os.getenv("GROQ_API_KEY")
-        if not model:
-            model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
-
-        self.client = Groq(api_key=api_key)
-        self.model = model
-        print(f"✅ Response Generator using: {self.model}")
-        
         # Enhanced prompt template with natural tone
         self.prompt_template = PromptTemplate(
             input_variables=["question", "context", "query_results", "query_type"],
@@ -178,14 +161,15 @@ Use the data in {query_results} and match the tone to the {query_type} query typ
         """
         Generate natural language response with natural tone
         """
+        query_type = self._detect_query_type(question)
+        if self.client is None:
+            return self._generate_fallback_response(query_results, query_type)
         try:
-            # Detect query type for appropriate tone
-            query_type = self._detect_query_type(question)
             
             # Format query results
             results_summary = self._format_results(query_results)
             
-            # Generate response using Gemini with enhanced prompt
+            # Generate response using Groq with enhanced prompt
             formatted_prompt = self.prompt_template.format(
                 question=question,
                 context=context,

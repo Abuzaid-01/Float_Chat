@@ -191,7 +191,7 @@ export const Workspace = forwardRef<WorkspaceHandle, WorkspaceProps>(function Wo
           role: "assistant",
           text: result.success
             ? result.response || "The API returned an empty answer."
-            : "I couldn't complete that query. The pipeline stopped before it produced an answer — it is often worth one more try.",
+            : result.response || "The archive could not complete this query.",
           result,
           failedQuestion: result.success ? undefined : question,
         },

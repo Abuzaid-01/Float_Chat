@@ -1,5 +1,7 @@
 # 🚀 FloatChat - Complete Deployment Guide
 
+> Historical Streamlit-era guide. See [README.md](README.md) for the primary Next.js and FastAPI application.
+
 **Last Updated:** December 28, 2025  
 **Repository:** https://github.com/Abuzaid-01/Float_Chat  
 **Platform:** Streamlit Cloud
@@ -138,13 +140,9 @@ App URL:        floatchat (or your preferred subdomain)
 
 ```toml
 # Database Configuration (Neon PostgreSQL)
-DATABASE_URL = "postgresql://neondb_owner:npg_8yOoZiL1bJpW@ep-falling-block-a8srv2pf-pooler.eastus2.azure.neon.tech/neondb?sslmode=require"
+DATABASE_URL = "postgresql://YOUR_ROLE:YOUR_PASSWORD@YOUR_NEON_HOST/YOUR_DATABASE?sslmode=require"
 
-# Google Gemini API (for RAG & SQL generation)
-GOOGLE_API_KEY = "AIzaSyCZkkBonU4QHxmKfTAq0DXtf1RtBgczPBg"
-GOOGLE_MODEL = "gemini-2.0-flash-exp"
-
-# Groq API (for intent classification)
+# Groq API for model-assisted queries
 GROQ_API_KEY = "YOUR_GROQ_API_KEY_HERE"
 GROQ_MODEL = "llama-3.3-70b-versatile"
 

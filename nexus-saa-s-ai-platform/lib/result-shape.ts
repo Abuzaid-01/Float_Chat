@@ -149,16 +149,17 @@ export function buildProfiles(rows: DataRow[], measure: string, depthColumn = "p
     if (depth === null || value === null) continue;
     const float = row.float_id ?? null;
     const cycle = row.cycle_number ?? null;
+    const region = depthColumn === "depth_bin" && typeof row.ocean_region === "string" ? row.ocean_region : null;
     const fallback = `${row.latitude ?? ""},${row.longitude ?? ""},${row.timestamp ?? ""}`;
-    const id = float !== null ? `${float}#${cycle ?? ""}` : fallback;
+    const id = float !== null ? `${float}#${cycle ?? ""}#${row.timestamp ?? ""}` : region ?? fallback;
     let profile = groups.get(id);
     if (!profile) {
       const label =
         float !== null
           ? `Float ${float}${cycle !== null ? ` · cycle ${cycle}` : ""}`
-          : depthColumn === "depth_bin"
+          : region ?? (depthColumn === "depth_bin"
             ? "Mean of all matching measurements"
-            : `Profile ${groups.size + 1}`;
+            : `Profile ${groups.size + 1}`);
       profile = { id, label, points: [] };
       groups.set(id, profile);
     }

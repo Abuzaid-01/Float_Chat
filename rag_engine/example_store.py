@@ -1,14 +1,8 @@
-"""
-Few-Shot Example Store with Dynamic Promotion.
-Supplies high-quality query-SQL pairs to the LLM and dynamically learns from good queries.
-"""
+"""Curated natural-language query and SQL examples for the Groq prompt."""
 
 from typing import List, Dict, Optional
 import numpy as np
-import logging
 from vector_store.embeddings import EmbeddingGenerator
-
-logger = logging.getLogger(__name__)
 
 # Curated seed examples covering all key oceanographic query patterns
 SEED_EXAMPLES = [
@@ -16,9 +10,8 @@ SEED_EXAMPLES = [
         "query": "Show temperature profiles in the Arabian Sea",
         "sql": """SELECT latitude, longitude, timestamp, pressure, temperature, salinity
 FROM argo_profiles
-WHERE latitude BETWEEN 5 AND 30
-  AND longitude BETWEEN 40 AND 80
-  AND temp_qc IN (1,2,3)
+WHERE ocean_region = 'Arabian Sea'
+  AND temp_qc IN (1,2)
 ORDER BY timestamp DESC
 LIMIT 1000;""",
         "tags": ["geographic", "temperature", "arabian_sea"],
@@ -33,28 +26,21 @@ FROM argo_profiles;""",
     },
     {
         "query": "Compare average temperature and salinity between Arabian Sea and Bay of Bengal",
-        "sql": """SELECT 
-    CASE 
-        WHEN latitude BETWEEN 5 AND 30 AND longitude BETWEEN 40 AND 80 THEN 'Arabian Sea'
-        WHEN latitude BETWEEN 5 AND 25 AND longitude BETWEEN 80 AND 100 THEN 'Bay of Bengal'
-    END as region,
-    ROUND(AVG(temperature)::numeric, 2) as avg_temperature,
-    ROUND(AVG(salinity)::numeric, 2) as avg_salinity,
-    COUNT(*) as measurements
+        "sql": """SELECT ocean_region, AVG(temperature) AS avg_temperature,
+       AVG(salinity) AS avg_salinity, COUNT(*) as measurements
 FROM argo_profiles
-WHERE ((latitude BETWEEN 5 AND 30 AND longitude BETWEEN 40 AND 80)
-    OR (latitude BETWEEN 5 AND 25 AND longitude BETWEEN 80 AND 100))
-  AND temp_qc IN (1,2,3)
-  AND sal_qc IN (1,2,3)
-GROUP BY region;""",
+WHERE ocean_region IN ('Arabian Sea', 'Bay of Bengal')
+  AND temp_qc IN (1,2)
+  AND sal_qc IN (1,2)
+GROUP BY ocean_region;""",
         "tags": ["comparison", "regions", "statistics"],
     },
     {
         "query": "Show data for float 2902696",
         "sql": """SELECT cycle_number, latitude, longitude, timestamp, pressure, temperature, salinity
 FROM argo_profiles
-WHERE float_id LIKE '%2902696%'
-  AND temp_qc IN (1,2,3)
+WHERE float_id = '2902696'
+  AND temp_qc IN (1,2)
 ORDER BY cycle_number ASC, pressure ASC
 LIMIT 1000;""",
         "tags": ["float_specific", "trajectory"],
@@ -64,7 +50,7 @@ LIMIT 1000;""",
         "sql": """SELECT float_id, latitude, longitude, timestamp, pressure, temperature, salinity, dissolved_oxygen
 FROM argo_profiles
 WHERE pressure > 1000
-  AND temp_qc IN (1,2,3)
+  AND temp_qc IN (1,2)
 ORDER BY pressure DESC
 LIMIT 1000;""",
         "tags": ["depth", "deep_ocean"],
@@ -78,8 +64,8 @@ class ExampleStore:
     Computes semantic similarity to find the most relevant examples for a user query.
     """
 
-    def __init__(self):
-        self.embedding_generator = EmbeddingGenerator()
+    def __init__(self, embedding_generator=None):
+        self.embedding_generator = embedding_generator or EmbeddingGenerator()
         self.examples: List[Dict] = []
         self.embeddings: Optional[np.ndarray] = None
 
@@ -120,23 +106,6 @@ class ExampleStore:
             results.append(ex)
 
         return results
-
-    def promote_from_logs(self, query: str, sql: str, result_count: int) -> bool:
-        """
-        Self-improvement: dynamically promote high-quality queries to example store.
-        """
-        if result_count < 1 or len(query) < 10:
-            return False
-
-        # Don't add duplicates
-        for ex in self.examples:
-            if ex["query"].lower() == query.lower():
-                return False
-
-        self.examples.append({"query": query, "sql": sql, "tags": ["promoted"]})
-        self._rebuild_index()
-        logger.info(f"📈 Promoted query to ExampleStore: '{query}'")
-        return True
 
     def get_count(self) -> int:
         return len(self.examples)

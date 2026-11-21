@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from database.models import Base, ArgoProfile, ProfileSummary
 
 # Database URLs
-NEON_URL = "postgresql://neondb_owner:npg_8yOoZiL1bJpW@ep-falling-block-a8srv2pf-pooler.eastus2.azure.neon.tech/neondb?sslmode=require"
+NEON_URL = os.getenv("NEON_DATABASE_URL")
 
 print("="*80)
 print("🌊 FLOATCHAT - NEON DATABASE MIGRATION")
@@ -286,6 +286,8 @@ def verify_data(engine):
 
 def main():
     """Main migration function"""
+    if not NEON_URL:
+        raise SystemExit("Set NEON_DATABASE_URL before running this migration.")
     
     # CSV path
     csv_path = "data/processed/argo_profiles.csv"
@@ -327,11 +329,11 @@ def main():
         print("="*80)
         print("""
 Next steps:
-1. Update .env file with Neon DATABASE_URL (already done ✅)
+1. Set DATABASE_URL to your Neon connection string.
 2. Add secrets to Streamlit Cloud:
-   - DATABASE_URL="postgresql://neondb_owner:npg_8yOoZiL1bJpW@ep-falling-block-a8srv2pf-pooler.eastus2.azure.neon.tech/neondb?sslmode=require"
-   - GOOGLE_API_KEY="AIzaSyCZkkBonU4QHxmKfTAq0DXtf1RtBgczPBg"
-   - GOOGLE_MODEL="gemini-2.5-flash"
+   - DATABASE_URL="your-neon-database-url"
+   - GROQ_API_KEY="your-groq-api-key"
+   - GROQ_MODEL="openai/gpt-oss-120b"
 3. Deploy to Streamlit Cloud
 4. Upload vector_store files to GitHub (data/vector_store/)
 

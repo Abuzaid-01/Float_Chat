@@ -40,6 +40,8 @@ def main():
         {
             'id': s.id,
             'float_id': s.float_id,
+            'cycle_number': s.cycle_number,
+            'timestamp': s.timestamp.isoformat(),
             'summary_text': s.summary_text,
             'latitude': s.latitude,
             'longitude': s.longitude

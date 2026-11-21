@@ -10,12 +10,12 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Dict
 
-import pandas as pd
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import text
 
 from api import deps
 from api.schemas import BatchQueryRequest, QueryRequest
+from rag_engine.query_parser import PROFILE_COUNT
 from rag_engine.serialization import dataframe_to_records, to_jsonable
 
 router = APIRouter(prefix="/api/v1", tags=["FloatChat API"])
@@ -28,23 +28,12 @@ FLOAT_ID_PATTERN = re.compile(r"^\d{4,10}$")
 EXPORT_FORMATS = ("csv", "json", "parquet")
 
 
-def _run_query(query: str, use_cache: bool = True) -> Dict:
+def _run_query(query: str, use_cache: bool = True, **options) -> Dict:
     """Run a natural-language query through the pipeline, without an LLM-written answer."""
-    result = deps.get_query_processor().process_query(query, generate_answer=False, use_cache=use_cache)
+    result = deps.get_query_processor().process_query(query, generate_answer=False, use_cache=use_cache, **options)
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result.get("error", "The query could not be processed"))
     return result
-
-
-def _newest_profile(df: pd.DataFrame) -> pd.DataFrame:
-    """Profile analysis needs one cast: keep the newest (float, cycle) in the result."""
-    if df.empty or not {"float_id", "cycle_number"}.issubset(df.columns):
-        return df
-    if "timestamp" in df.columns:
-        newest = df.sort_values("timestamp", ascending=False).iloc[0]
-    else:
-        newest = df.iloc[0]
-    return df[(df["float_id"] == newest["float_id"]) & (df["cycle_number"] == newest["cycle_number"])]
 
 
 # Regular API Routes
@@ -68,6 +57,8 @@ def query_data(request: QueryRequest):
         "route": result.get("route"),
         "interpretation": result.get("interpretation"),
         "summary": result.get("summary"),
+        "analysis": result.get("analysis"),
+        "retrieval": result.get("retrieval", []),
         "execution_time": result.get("execution_time", 0),
         "cached": bool(result.get("cached")),
     }
@@ -149,8 +140,8 @@ def get_float_info(float_id: str):
         "float_id": row.float_id,
         "total_measurements": row.total_measurements,
         "total_cycles": row.total_cycles,
-        "first_measurement": row.first_measurement.isoformat() if row.first_measurement else None,
-        "last_measurement": row.last_measurement.isoformat() if row.last_measurement else None,
+        "first_measurement": to_jsonable(row.first_measurement),
+        "last_measurement": to_jsonable(row.last_measurement),
         "avg_location": {"lat": number(row.avg_latitude), "lon": number(row.avg_longitude)},
         "temperature": {"min": number(row.min_temp), "max": number(row.max_temp), "mean": number(row.avg_temp)},
         "salinity": {"min": number(row.min_sal), "max": number(row.max_sal), "mean": number(row.avg_sal)},
@@ -188,20 +179,15 @@ def get_regions():
 def analyze_thermocline(query: str = Query(..., min_length=1, max_length=1000)):
     """Thermocline and mixed-layer analysis of the newest profile the query returns."""
     try:
-        result = _run_query(query)
-        profile = _newest_profile(result["results"])
-        thermocline = deps.get_analytics().calculate_thermocline_advanced(profile)
-        return to_jsonable({
-            "success": True,
-            "thermocline": thermocline,
-            "profile": {
-                "float_id": profile["float_id"].iloc[0] if "float_id" in profile.columns and len(profile) else None,
-                "cycle_number": profile["cycle_number"].iloc[0] if "cycle_number" in profile.columns and len(profile) else None,
-                "measurements": len(profile),
-            },
+        result = _run_query(query, analysis="thermocline")
+        analysis = result["analysis"]
+        return {
+            "success": analysis["success"],
+            "thermocline": analysis,
+            "profile": analysis.get("profile"),
             "record_count": len(result["results"]),
             "sql": result.get("sql"),
-        })
+        }
     except HTTPException:
         raise
     except Exception as e:
@@ -212,22 +198,16 @@ def analyze_thermocline(query: str = Query(..., min_length=1, max_length=1000)):
 def identify_water_masses(query: str = Query(..., min_length=1, max_length=1000)):
     """Water masses in the newest profile the query returns."""
     try:
-        result = _run_query(query)
-        profile = _newest_profile(result["results"])
-        analytics = deps.get_analytics()
-        detail = analytics.identify_water_masses_advanced(profile)
-        return to_jsonable({
-            "success": True,
-            "water_masses": detail.get("water_masses", []) if isinstance(detail, dict) else [],
+        result = _run_query(query, analysis="water_masses")
+        detail = result["analysis"]
+        return {
+            "success": detail["success"],
+            "water_masses": detail.get("water_masses", []),
             "detail": detail,
-            "profile": {
-                "float_id": profile["float_id"].iloc[0] if "float_id" in profile.columns and len(profile) else None,
-                "cycle_number": profile["cycle_number"].iloc[0] if "cycle_number" in profile.columns and len(profile) else None,
-                "measurements": len(profile),
-            },
+            "profile": detail.get("profile"),
             "record_count": len(result["results"]),
             "sql": result.get("sql"),
-        })
+        }
     except HTTPException:
         raise
     except Exception as e:
@@ -239,7 +219,7 @@ def analyze_trends(region: str, parameter: str, days: int = Query(90, ge=1, le=3
     """Trend of a parameter in a region over the last `days` days of the dataset."""
     try:
         trend = deps.get_analytics().trend_analysis(region, parameter, days)
-        return to_jsonable({"success": True, "trend_analysis": trend})
+        return to_jsonable({"success": trend["success"], "trend_analysis": trend})
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -253,11 +233,11 @@ def database_statistics():
 
     # One pass over the table.  Averages use good-quality values only (QC 1-2),
     # the same rule the question pipeline applies.
-    query = text("""
+    query = text(f"""
         SELECT
             COUNT(*) AS total_records,
             COUNT(DISTINCT float_id) AS unique_floats,
-            COUNT(DISTINCT (float_id, cycle_number)) FILTER (WHERE float_id IS NOT NULL) AS profiles,
+            {PROFILE_COUNT} AS profiles,
             MIN(timestamp) AS earliest,
             MAX(timestamp) AS latest,
             COUNT(DISTINCT ocean_region) AS regions,
@@ -277,8 +257,8 @@ def database_statistics():
         "unique_floats": row.unique_floats,
         "profiles": row.profiles,
         "date_range": {
-            "earliest": row.earliest.isoformat() if row.earliest else None,
-            "latest": row.latest.isoformat() if row.latest else None,
+            "earliest": to_jsonable(row.earliest),
+            "latest": to_jsonable(row.latest),
         },
         "regions_covered": row.regions,
         "cycles": row.cycle_numbers,

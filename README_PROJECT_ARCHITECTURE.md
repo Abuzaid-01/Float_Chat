@@ -1,5 +1,7 @@
 # 🌊 FloatChat - Complete Project Architecture
 
+> Historical Streamlit-era guide. See [README.md](README.md) for the primary Next.js and FastAPI application.
+
 > **AI-Powered Conversational Interface for ARGO Ocean Data Analysis**  
 > Ministry of Earth Sciences | INCOIS
 

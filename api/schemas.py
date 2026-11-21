@@ -1,6 +1,6 @@
 """Request and response models for the FloatChat API."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -10,7 +10,7 @@ MAX_BATCH_QUERIES = 10
 
 
 class ChatTurn(BaseModel):
-    role: str = Field(..., max_length=20)
+    role: Literal["user", "assistant"]
     content: str = Field("", max_length=20000)
 
 
@@ -25,7 +25,7 @@ class ChatResponse(BaseModel):
     intent: str = "data_query"
     sql: Optional[str] = None
     data: Optional[List[Dict[str, Any]]] = None
-    # Rows the SQL returned; `data` carries at most the first 500 of them.
+    # Total SQL rows returned before applying the response limit.
     result_count: int = 0
     execution_time: float = 0.0
     # How the SQL was produced: "rules" or "llm".
@@ -36,6 +36,8 @@ class ChatResponse(BaseModel):
     summary: Optional[Dict[str, Any]] = None
     # Thermocline / water-mass results, when the question asked for them.
     analysis: Optional[Dict[str, Any]] = None
+    # Profile summaries used to guide model-written SQL.
+    retrieval: List[Dict[str, Any]] = Field(default_factory=list)
     cached: bool = False
     error: Optional[str] = None
 

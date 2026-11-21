@@ -3,7 +3,6 @@ Intent Classification System for FloatChat
 Routes queries based on user intent, making the chatbot more human-like and intelligent
 """
 
-import os
 import re
 from groq import Groq
 from typing import Dict, List
@@ -23,7 +22,7 @@ class IntentClassifier:
         # Many paths (keyword intent match) don't need the LLM at all.
         # We'll initialize the Groq client lazily only when needed.
         self.client = None
-        self.model = os.getenv('GROQ_MODEL', 'llama-3.3-70b-versatile')
+        self.model = llm_config.setting("GROQ_MODEL", llm_config.DEFAULT_MODEL)
         
         # Define intent categories
         self.intents = {
@@ -79,18 +78,7 @@ class IntentClassifier:
         if self.client is not None:
             return self.client
 
-        api_key = os.getenv('GROQ_API_KEY')
-        if not api_key:
-            raise RuntimeError(
-                "GROQ_API_KEY is not set. LLM-based intent classification can't run, "
-                "but keyword-based routing still works."
-            )
-
-        self.client = Groq(
-            api_key=api_key,
-            timeout=llm_config.REQUEST_TIMEOUT_SECONDS,
-            max_retries=llm_config.MAX_RETRIES,
-        )
+        self.client = llm_config.make_client()
         return self.client
     
     def classify_intent(self, user_query: str, conversation_history: List[Dict] = None) -> Dict:
@@ -208,7 +196,7 @@ class IntentClassifier:
                     'direct_response': direct_response
                 }
         
-        # It's a data query, route to MCP pipeline
+        # It's a data query, route to the archive query pipeline
         return {
             'intent': 'data_query',
             'confidence': llm_intent['confidence'],
@@ -254,7 +242,14 @@ JSON Response:"""
 
         try:
             # Shared helper: bounded timeout and retries, low temperature for consistency.
-            response_text = llm_config.chat(prompt, temperature=0.1, max_tokens=200, client=self._get_llm_client()).strip()
+            completion = self._get_llm_client().chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_completion_tokens=350,
+                response_format={"type": "json_object"},
+            )
+            response_text = (completion.choices[0].message.content or "").strip()
             
             # Parse JSON response
             # Remove markdown code blocks if present
@@ -322,7 +317,7 @@ How can I help you today? 🚀"""
         """Help information response"""
         return """## 🆘 How to Use FloatChat
 
-I'm powered by **MCP (Model Context Protocol)** and can understand natural language queries about oceanographic data!
+Ask a question about the Argo archive or request a profile analysis.
 
 ### 📋 **What I Can Do:**
 
@@ -397,66 +392,11 @@ Built with ❤️ by **Abuzaid** - [LinkedIn](https://www.linkedin.com/in/abuzai
 
 
     def _get_mcp_info(self) -> str:
-        """Detailed response about FloatChat MCP architecture and 9 specialized tools."""
-        return """## 🔌 FloatChat Model Context Protocol (MCP) Architecture
-
-FloatChat exposes a full **Model Context Protocol (MCP)** server—an open standard developed by Anthropic that allows external AI assistants (such as **Claude Desktop**, **Cursor IDE**, or autonomous agent frameworks) to interact directly with FloatChat as a secure, domain-specific oceanographic intelligence platform.
-
----
-
-### 🛠️ The 9 Specialized MCP Tools Available:
-
-FloatChat provides **9 purpose-built tools** categorized into three operational pillars:
-
-#### 1. 📊 Core Data & Retrieval Tools
-1. **`query_argo_data`**  
-   *Natural language → SQL execution.* Translates conversational oceanographic questions into validated, injection-safe SQL queries over 1.2M+ ARGO float measurements.
-2. **`search_similar_profiles`**  
-   *Hybrid vector search (FAISS + BM25).* Discovers oceanographic profiles sharing semantic and hydrographic similarities across the Indian Ocean basin.
-3. **`get_database_schema`**  
-   *Live database introspection.* Exposes table structures (`argo_profiles`, `profile_summaries`), indexed spatial columns, and quality-control flags (QC 1–2).
-
-#### 2. 🌊 Advanced Oceanographic Analytics Tools
-4. **`calculate_thermocline`**  
-   Computes thermocline depth, thermal gradient (°C/m), and mixed layer depth (MLD) for any individual float cycle.
-5. **`identify_water_masses`**  
-   Scientifically classifies core water masses (e.g., *Red Sea Outflow Water*, *Persian Gulf Water*, *Bay of Bengal Water*) using temperature-salinity (T-S) signatures.
-6. **`calculate_mixed_layer_depth` / `get_bgc_data`**  
-   Extracts upper-ocean mixed layer dynamics and biogeochemical data (dissolved oxygen, chlorophyll, pH) from BGC-enabled floats.
-
-#### 3. 🗺️ Spatial, Temporal & Float Tracking Tools
-7. **`analyze_profile` / `analyze_float_profile`**  
-   Inspects complete float trajectories, sensor health, cycle counts, and geographic coordinates for any specific ARGO platform ID.
-8. **`compare_regions`**  
-   Performs statistical cross-basin comparisons (mean, min, max, std dev) between ocean regions (e.g., *Arabian Sea* vs. *Bay of Bengal*).
-9. **`analyze_temporal_trends`**  
-   Runs time-series linear regressions to analyze seasonal warming, cooling, or salinity drift across historical measurement windows.
-
----
-
-### 🚀 Key Benefits of FloatChat's MCP Integration:
-
-* **Platform vs. Chatbot**: FloatChat is not limited to a web UI. Any external AI system can connect to FloatChat over standard JSON-RPC via stdio or SSE.
-* **Zero Hallucination Grounding**: External LLMs do not guess ocean values—they receive real, calibrated data from 714 active floats and 1,306 profiles.
-* **Defense-in-Depth Security**: Tool calls run in isolated `READ ONLY` database transactions with parameter binding and strict schema whitelisting.
-* **Scientific Computation**: Tools execute complex ocean physics algorithms (thermocline gradient, density-based water mass classification) directly on the backend.
-
----
-
-### 💻 How External AI Clients Connect:
-Add this to your `claude_desktop_config.json`:
-```json
-{
-  "mcpServers": {
-    "floatchat": {
-      "command": "python3",
-      "args": ["-m", "mcp_server.argo_mcp_server"]
-    }
-  }
-}
-```
-
-*Ask me to run any analysis, search profiles, or query specific float data!* 🌊"""
+        return (
+            "This version of FloatChat uses FastAPI for archive queries and profile analysis. "
+            "MCP is a protocol for exposing tools to external AI clients. Earlier FloatChat "
+            "prototypes included an internal tool registry."
+        )
 
 
 # Singleton instance

@@ -25,7 +25,7 @@ const instrumentSerif = Instrument_Serif({
 export const metadata: Metadata = {
   title: "FloatChat AI — Conversational Oceanography & ARGO Float RAG Platform",
   description:
-    "Explore 1.2M+ ARGO ocean float measurements across the Arabian Sea, Bay of Bengal, and Indian Ocean with AI natural language queries, hybrid search, and zero SQL hallucinations.",
+    "Explore the Argo ocean-float archive with natural-language queries, profile analysis, and interactive charts. Inspect the SQL and measurements behind each data answer.",
   keywords: [
     "ARGO Float",
     "Oceanography",

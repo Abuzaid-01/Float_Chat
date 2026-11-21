@@ -59,7 +59,7 @@ class FAISSVectorStore:
         
         results = []
         for dist, idx in zip(distances[0], indices[0]):
-            if idx < len(self.metadata):
+            if 0 <= idx < len(self.metadata):
                 results.append((float(dist), self.metadata[idx]))
         
         return results

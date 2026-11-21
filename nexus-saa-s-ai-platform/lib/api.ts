@@ -106,7 +106,7 @@ export type ChatResponse = {
   intent?: string;
   sql?: string | null;
   data?: DataRow[] | null;
-  /** Rows the SQL returned; `data` carries at most the first 500. */
+  /** Total SQL rows before the API applies its display limit. */
   result_count?: number;
   execution_time?: number;
   /** "rules" when fixed rules built the SQL, "llm" when the language model wrote it. */
@@ -115,6 +115,7 @@ export type ChatResponse = {
   interpretation?: string | null;
   summary?: ResultSummary | null;
   analysis?: ProfileAnalysis | null;
+  retrieval?: Array<{ float_id?: string | null; cycle_number?: number | null; timestamp?: string | null; summary: string; rank: number }>;
   cached?: boolean;
   error?: string | null;
 };
@@ -201,7 +202,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
 export const floatchatApi = {
   health: (signal?: AbortSignal) =>
-    request<BackendHealth>("/api/v1/health", { signal, timeoutMs: 8_000 }),
+    request<BackendHealth>("/api/v1/health?deep=true", { signal, timeoutMs: 8_000 }),
 
   stats: (signal?: AbortSignal) => request<DatabaseStats>("/api/v1/stats", { signal }),
 

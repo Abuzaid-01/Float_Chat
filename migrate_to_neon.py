@@ -14,8 +14,8 @@ from database.models import Base, ArgoProfile, ProfileSummary
 from tqdm import tqdm
 
 # Connection strings
-LOCAL_DB = "postgresql://postgres:floatchat123@localhost:5432/floatchat"
-NEON_DB = "postgresql://neondb_owner:npg_8yOoZiL1bJpW@ep-falling-block-a8srv2pf-pooler.eastus2.azure.neon.tech/neondb?sslmode=require"
+LOCAL_DB = os.getenv("LOCAL_DATABASE_URL")
+NEON_DB = os.getenv("NEON_DATABASE_URL")
 
 def test_connections():
     """Test both database connections"""
@@ -298,6 +298,8 @@ def update_env_file():
         return False
 
 def main():
+    if not LOCAL_DB or not NEON_DB:
+        raise SystemExit("Set LOCAL_DATABASE_URL and NEON_DATABASE_URL before running this migration.")
     """Main migration process"""
     print("🚀 FLOATCHAT MIGRATION TO NEON POSTGRESQL")
     print("="*70)
@@ -334,7 +336,7 @@ def main():
     print("⚠️  IMPORTANT: Update .env file")
     print("="*70)
     print(f"\nAdd this to your .env file:")
-    print(f"DATABASE_URL={NEON_DB}")
+    print("Set DATABASE_URL to your Neon connection string.")
     
     response = input("\nUpdate .env file automatically? (y/n): ")
     if response.lower() == 'y':

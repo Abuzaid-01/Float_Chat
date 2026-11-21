@@ -54,15 +54,8 @@ class HybridRetriever:
 
         for meta in metadata:
             # Extract searchable text from metadata
-            text = meta.get("summary_text", "")
-            if not text:
-                # Fallback: combine available fields
-                parts = []
-                for key in ("float_id", "region", "platform_type", "description"):
-                    val = meta.get(key)
-                    if val:
-                        parts.append(str(val))
-                text = " ".join(parts)
+            fields = ("summary_text", "float_id", "cycle_number", "region", "platform_type", "description")
+            text = " ".join(str(meta[key]) for key in fields if meta.get(key) is not None)
 
             if text:
                 # Tokenize: lowercase, split on alphanumeric

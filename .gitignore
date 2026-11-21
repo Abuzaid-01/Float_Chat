@@ -30,6 +30,8 @@ data/processed/*
 
 # Large database dumps and data files (use Neon cloud database instead)
 *.sql
+!database/migrations/add_ocean_region_and_normalize_float_id.sql
+!database/migrations/read_only_role.sql
 *.dump
 argo_data.csv
 argo_dump.sql
