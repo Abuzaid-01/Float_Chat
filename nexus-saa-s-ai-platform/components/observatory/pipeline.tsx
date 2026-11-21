@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Code2, Database, Layers3, MessageSquareText, Radar, Split } from "lucide-react";
-import type { DatabaseStats, PipelineStats } from "@/lib/api";
+import { USE_NETLIFY_API, type DatabaseStats, type PipelineStats } from "@/lib/api";
 import { formatCount } from "@/lib/ocean";
 import { Reveal } from "@/components/landing/reveal";
 import type { CompletedQuery } from "./workspace";
@@ -96,7 +96,9 @@ export function Pipeline({ telemetry, stats, lastQuery }: PipelineProps) {
     {
       icon: Radar,
       title: "Retrieve",
-      body: "For free-form questions, FAISS and BM25 retrieve relevant profile summaries to guide SQL. Structured questions use the parsed filters directly.",
+      body: USE_NETLIFY_API
+        ? "Structured questions query Neon directly. Free-form retrieval is handled by the Python API when available."
+        : "For free-form questions, FAISS and BM25 retrieve relevant profile summaries to guide SQL. Structured questions use the parsed filters directly.",
       label: "vector search",
       artifact: (
         <>
@@ -108,7 +110,9 @@ export function Pipeline({ telemetry, stats, lastQuery }: PipelineProps) {
     {
       icon: Code2,
       title: "Generate",
-      body: "Questions the rules fully understand — regions, floats, depths, dates, counts, comparisons — become SQL without a model. Anything else goes to the language model. Archive queries run in a read-only PostgreSQL transaction.",
+      body: USE_NETLIFY_API
+        ? "Supported counts, regional comparisons, and archive lookups become parameterized SQL. Queries run in a read-only PostgreSQL transaction."
+        : "Questions the rules fully understand — regions, floats, depths, dates, counts, comparisons — become SQL without a model. Anything else goes to the language model. Archive queries run in a read-only PostgreSQL transaction.",
       label: route === "llm" ? "sql · written by the language model" : route === "rules" ? "sql · built by rules" : "sql",
       artifact: sql ? <code>{clip(sql.replace(/\s+/g, " "), 230)}</code> : <span>SQL appears after an archive query.</span>,
     },

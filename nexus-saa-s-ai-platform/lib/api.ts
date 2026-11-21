@@ -1,5 +1,5 @@
 /**
- * Typed client for the FloatChat FastAPI backend (api/main.py + api/routes.py).
+ * Typed client for the FloatChat API on Netlify or FastAPI.
  *
  * Every call goes through `request`, which adds a timeout, forwards an
  * optional AbortSignal, and turns FastAPI's `{ detail }` error bodies into
@@ -122,7 +122,9 @@ export type ChatResponse = {
 
 export type ChatTurn = { role: "user" | "assistant"; content: string };
 
-export const API_BASE_URL = (
+export const USE_NETLIFY_API = process.env.NEXT_PUBLIC_API_MODE === "netlify";
+
+export const API_BASE_URL = USE_NETLIFY_API ? "" : (
   process.env.NEXT_PUBLIC_API_BASE_URL ||
   process.env.NEXT_PUBLIC_API_URL ||
   "http://localhost:8000"
@@ -130,7 +132,7 @@ export const API_BASE_URL = (
 
 /** Short timeout for lookups; the chat pipeline (LLM + database) needs far longer. */
 const DEFAULT_TIMEOUT_MS = 20_000;
-const CHAT_TIMEOUT_MS = 120_000;
+const CHAT_TIMEOUT_MS = USE_NETLIFY_API ? 25_000 : 120_000;
 
 export type ApiErrorKind = "network" | "timeout" | "aborted" | "http";
 
@@ -193,7 +195,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       throw new ApiError("timeout", `No reply from the API after ${Math.round(timeoutMs / 1000)}s.`);
     }
     if (controller.signal.aborted) throw new ApiError("aborted", "Request cancelled.");
-    throw new ApiError("network", `Cannot reach the FloatChat API at ${API_BASE_URL}.`);
+    throw new ApiError("network", `Cannot reach the FloatChat API at ${API_BASE_URL || "this site"}.`);
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener("abort", onAbort);
@@ -202,7 +204,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
 export const floatchatApi = {
   health: (signal?: AbortSignal) =>
-    request<BackendHealth>("/api/v1/health?deep=true", { signal, timeoutMs: 8_000 }),
+    request<BackendHealth>("/api/v1/health?deep=true", { signal, timeoutMs: USE_NETLIFY_API ? DEFAULT_TIMEOUT_MS : 8_000 }),
 
   stats: (signal?: AbortSignal) => request<DatabaseStats>("/api/v1/stats", { signal }),
 

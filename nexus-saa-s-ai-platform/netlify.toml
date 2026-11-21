@@ -7,6 +7,7 @@
 [build.environment]
   NODE_VERSION = "20"
   PNPM_VERSION = "9"
+  NEXT_PUBLIC_API_MODE = "netlify"
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"

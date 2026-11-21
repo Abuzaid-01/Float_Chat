@@ -7,7 +7,7 @@ import {
   Activity, ArrowDownToLine, ArrowRight, BarChart3, Bot, Check, Clipboard, Command, CornerDownLeft, FlaskConical,
   MapPin, Radio, RotateCcw, Scale, Send, Sparkles, Square, Trash2, Waves,
 } from "lucide-react";
-import { API_BASE_URL, ApiError, ChatResponse, ChatTurn, Suggestion, floatchatApi } from "@/lib/api";
+import { API_BASE_URL, ApiError, ChatResponse, ChatTurn, Suggestion, USE_NETLIFY_API, floatchatApi } from "@/lib/api";
 import { Reveal } from "@/components/landing/reveal";
 import { ResultLens } from "./result-lens";
 
@@ -49,7 +49,11 @@ const CATEGORY_ICONS: Record<string, typeof MapPin> = {
  * The backend replies in one piece (no streaming), so these stages are paced
  * on typical timings to show what the pipeline is doing while it works.
  */
-const STAGES = [
+const STAGES = USE_NETLIFY_API ? [
+  { after: 0, label: "Reading the question" },
+  { after: 0.5, label: "Querying the archive" },
+  { after: 3.2, label: "Waiting for the result" },
+] : [
   { after: 0, label: "Classifying intent" },
   { after: 0.5, label: "Searching similar profiles" },
   { after: 1, label: "Building SQL" },
@@ -68,9 +72,10 @@ function cleanMarkdown(text: string) {
 function describeFailure(error: unknown) {
   if (error instanceof ApiError) {
     if (error.kind === "network") {
+      if (USE_NETLIFY_API) return "The FloatChat API is unreachable. Try again shortly.";
       return `I can't reach the FloatChat API at \`${API_BASE_URL}\`. Start the backend (\`./start.sh\` from the FloatChat folder), then try again.`;
     }
-    if (error.kind === "timeout") return `The API took too long to reply. ${error.message} Try a narrower question.`;
+    if (error.kind === "timeout") return `The API took too long to reply. ${error.message} Try again shortly.`;
     return `The API returned an error${error.status ? ` (${error.status})` : ""}: ${error.message}`;
   }
   return "Something went wrong while sending your question.";
