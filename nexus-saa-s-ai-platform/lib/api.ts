@@ -67,6 +67,16 @@ export type PipelineStats = {
 
 export type DataRow = Record<string, unknown>;
 
+export type CastRef = { floatId: string; cycle: number; timestamp: string };
+
+export type ArchiveCast = {
+  latitude: number | null;
+  longitude: number | null;
+  region: string | null;
+  total_levels: number;
+  readings: DataRow[];
+};
+
 /** Totals over everything the filters matched; `data` may be only the newest rows. */
 export type ResultSummary = {
   total_matching?: number;
@@ -120,6 +130,7 @@ export type ChatResponse = {
   error?: string | null;
   retryable?: boolean;
   map_data?: DataRow[];
+  comparison?: { depth_rows?: DataRow[]; band_size: number; map_limit_per_region: number };
   preferred_view?: "map" | "chart";
   trajectory?: boolean;
 };
@@ -223,6 +234,9 @@ export const floatchatApi = {
 
   float: (floatId: string, signal?: AbortSignal) =>
     request<FloatInfo>(`/api/v1/floats/${encodeURIComponent(floatId)}`, { signal }),
+
+  cast: ({ floatId, cycle, timestamp }: CastRef, signal?: AbortSignal) =>
+    request<ArchiveCast>(`/api/v1/floats/${encodeURIComponent(floatId)}/cycles/${cycle}?time=${encodeURIComponent(timestamp)}`, { signal }),
 
   chat: (message: string, conversation_history: ChatTurn[], signal?: AbortSignal) =>
     request<ChatResponse>("/api/v1/chat", {

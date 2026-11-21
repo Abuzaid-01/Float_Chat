@@ -633,3 +633,37 @@
   .obs-rays span, .surface-waves__layer, .status-dot { animation: none !important; }
   .trace__artifact { opacity: 1; transform: none; }
 }
+
+.result-lens__tabs { max-width: 100%; overflow-x: auto; }
+.result-lens__tabs button { flex: 0 0 auto; white-space: nowrap; }
+.observation-toolbar, .cast-panel__actions { display: flex; flex-wrap: wrap; align-items: end; gap: 8px 12px; }
+.observation-toolbar { margin-bottom: 10px; }
+.observation-toolbar label, .comparison-depth__samples > label { display: grid; gap: 4px; min-width: 0; color: var(--ink-2); font-size: 12px; }
+.observation-toolbar label:has(select) { flex: 1 1 155px; }
+.observation-toolbar select { max-width: 100%; }
+.observation-toolbar__buttons { display: flex; gap: 5px; }
+.observation-toolbar__buttons .message-action, .cast-panel__actions .message-action { min-height: 31px; }
+.ocean-map--pan { cursor: grab; touch-action: none; }
+.ocean-map--pan:active { cursor: grabbing; }
+.ocean-map__points [data-cast-marker] { cursor: pointer; }
+.ocean-map__points [data-cast-marker]:focus-visible .ocean-map__dot,
+.ocean-map__points [aria-pressed="true"] .ocean-map__dot { stroke: #f7f5e8; stroke-width: 2.5; }
+.observation-legend { margin: 10px 0 0; }
+.cast-panel { margin-top: 14px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: rgb(4 20 34 / 0.45); }
+.cast-panel__head { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
+.cast-panel__head h3 { margin: 0; color: var(--ink); font-size: 16px; }
+.cast-panel__head h3 span { color: var(--muted); font-size: 13px; font-weight: 400; }
+.cast-panel__head p, .cast-panel__error p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+.cast-panel__error { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.cast-panel__metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin: 12px 0; }
+.cast-panel__metrics div { padding: 8px; border: 1px solid var(--line); border-radius: 7px; }
+.cast-panel__metrics dt { color: var(--muted); font-size: 11px; }
+.cast-panel__metrics dd { margin: 4px 0 0; color: var(--ink); font-family: var(--mono); font-size: 13px; }
+.cast-panel__actions { justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.comparison-depth__head { align-items: start; }
+.comparison-depth__head .cast-panel__actions { justify-content: start; margin-bottom: 0; }
+.comparison-depth__filter { display: flex; align-items: center; gap: 7px; color: var(--ink-2); font-size: 12px; }
+.comparison-depth__filter input { accent-color: var(--teal); }
+.comparison-depth__samples { display: grid; gap: 8px; margin-top: 10px; }
+.comparison-depth__samples > label { justify-self: start; }
+.cast-panel__table { max-height: 300px; }

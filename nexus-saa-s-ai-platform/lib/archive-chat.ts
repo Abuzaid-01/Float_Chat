@@ -3,6 +3,7 @@ import { archiveTable, countColumns, numberOrNull, queryArchive, timestampOrNull
 import type { ArchivePlan } from "@/lib/archive-intent";
 import { formatDateRange } from "@/lib/ocean";
 
+const exactCastTime = `TO_CHAR(timestamp, 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cast_time`;
 const formatCount = new Intl.NumberFormat("en-US");
 const readings = ["temperature", "salinity"] as const;
 const quality = { temperature: "temp_qc", salinity: "sal_qc" } as const;
@@ -54,9 +55,9 @@ function quantities(row: DataRow) {
 }
 
 function positionStatement(where: string) {
-  return `SELECT float_id, cycle_number, latitude, longitude, timestamp
+  return `SELECT float_id, cycle_number, latitude, longitude, timestamp, ocean_region, ${exactCastTime}
     FROM (
-      SELECT DISTINCT ON (float_id) float_id, cycle_number, latitude, longitude, timestamp
+      SELECT DISTINCT ON (float_id) float_id, cycle_number, latitude, longitude, timestamp, ocean_region
       FROM ${archiveTable}${where}
       ORDER BY float_id, timestamp DESC, cycle_number DESC, pressure
     ) AS positions ORDER BY timestamp DESC, float_id LIMIT 250`;
@@ -75,11 +76,12 @@ export async function answerArchive(plan: ArchivePlan, route: "rules" | "llm"): 
     sql: string,
     interpretation: string,
     explain: (rows: DataRow[]) => string,
-    evidence?: { mapSql?: string; view?: "map" | "chart"; trajectory?: boolean },
+    evidence?: { mapSql?: string; view?: "map" | "chart"; trajectory?: boolean; comparison?: { sql: string; bandSize: number; mapLimit: number } },
   ): Promise<ChatResponse> => {
-    const [data, map_data] = await Promise.all([
+    const [data, map_data, depthRows] = await Promise.all([
       queryArchive(sql, values),
       evidence?.mapSql ? queryArchive(evidence.mapSql, values).catch(() => undefined) : undefined,
+      evidence?.comparison ? queryArchive(evidence.comparison.sql, values).catch(() => undefined) : undefined,
     ]);
     return {
       success: true,
@@ -90,6 +92,11 @@ export async function answerArchive(plan: ArchivePlan, route: "rules" | "llm"): 
       sql,
       data,
       map_data,
+      comparison: evidence?.comparison && {
+        depth_rows: depthRows,
+        band_size: evidence.comparison.bandSize,
+        map_limit_per_region: evidence.comparison.mapLimit,
+      },
       preferred_view: evidence?.view,
       trajectory: evidence?.trajectory,
       result_count: data.length,
@@ -136,8 +143,41 @@ export async function answerArchive(plan: ArchivePlan, route: "rules" | "llm"): 
   }
 
   if (plan.operation === "compare") {
+    const mapLimit = Math.floor(400 / plan.regions.length);
+    const bandSize = 100;
+    const qcCounts = metrics.map((metric) =>
+      `COUNT(${metric}) FILTER (WHERE ${quality[metric]} IN (1, 2))::int AS ${metric}_readings`,
+    ).join(", ");
+    const castMeans = metrics.map((metric) =>
+      `AVG(average_${metric}) AS average_${metric}, STDDEV_SAMP(average_${metric}) AS ${metric}_cast_sd,
+       COUNT(average_${metric})::int AS ${metric}_casts,
+       SUM(${metric}_readings)::int AS ${metric}_readings`,
+    ).join(", ");
+    const depthSql = `WITH casts AS (
+      SELECT ocean_region, float_id, cycle_number, timestamp,
+             FLOOR(pressure / ${bandSize})::int * ${bandSize} AS depth_bin, ${averages}, ${qcCounts}
+      FROM ${archiveTable}${where("float_id IS NOT NULL", "cycle_number IS NOT NULL", "timestamp IS NOT NULL", "pressure >= 0")}
+      GROUP BY ocean_region, float_id, cycle_number, timestamp, depth_bin
+    )
+    SELECT ocean_region, depth_bin, ${castMeans}
+    FROM casts GROUP BY ocean_region, depth_bin ORDER BY ocean_region, depth_bin`;
+    const mapSql = `WITH casts AS (
+      SELECT DISTINCT ON (ocean_region, float_id, cycle_number, timestamp)
+             ocean_region, float_id, cycle_number, timestamp, latitude, longitude
+      FROM ${archiveTable}${where("float_id IS NOT NULL", "cycle_number IS NOT NULL", "timestamp IS NOT NULL", "latitude BETWEEN -90 AND 90", "longitude BETWEEN -180 AND 180")}
+      ORDER BY ocean_region, float_id, cycle_number, timestamp, pressure
+    ), ranked AS (
+      SELECT *, ROW_NUMBER() OVER (PARTITION BY ocean_region ORDER BY timestamp, float_id, cycle_number) AS position_index,
+             COUNT(*) OVER (PARTITION BY ocean_region) AS region_total
+      FROM casts
+    )
+    SELECT ocean_region, float_id, cycle_number, timestamp, latitude, longitude, ${exactCastTime}
+    FROM ranked WHERE (position_index - 1) % CEIL(region_total::numeric / ${mapLimit}) = 0
+    ORDER BY ocean_region, timestamp, float_id, cycle_number`;
     return read(
-      `SELECT ocean_region, ${countColumns}, ${averages}
+      `SELECT ocean_region, ${countColumns}, ${averages}, ${qcCounts},
+              MIN(timestamp) AS earliest, MAX(timestamp) AS latest,
+              MIN(pressure) AS min_pressure, MAX(pressure) AS max_pressure
        FROM ${archiveTable}${where()} GROUP BY ocean_region ORDER BY ocean_region`,
       "Compare archived measurements by region",
       (rows) => {
@@ -155,9 +195,10 @@ export async function answerArchive(plan: ArchivePlan, route: "rules" | "llm"): 
           ...descriptions,
           "",
           missing.length ? `No matching observations for ${missing.join(", ")}.` : "",
-          "The averages use quality-controlled readings across the sampled pressures.",
+          "These means pool readings across the sampled pressures. Open **By depth** for a like-pressure comparison and **Coverage** to check the sample sizes and dates.",
         ].join("\n");
       },
+      { mapSql, comparison: { sql: depthSql, bandSize, mapLimit } },
     );
   }
 
@@ -166,7 +207,8 @@ export async function answerArchive(plan: ArchivePlan, route: "rules" | "llm"): 
     const tracking = plan.operation === "track";
     const sql = tracking
       ? `SELECT * FROM (
-           SELECT float_id, cycle_number, timestamp, AVG(latitude) AS latitude, AVG(longitude) AS longitude
+           SELECT float_id, cycle_number, timestamp, ${exactCastTime}, MAX(ocean_region) AS ocean_region,
+                  AVG(latitude) AS latitude, AVG(longitude) AS longitude
            FROM ${archiveTable}${locations}
            GROUP BY float_id, cycle_number, timestamp ORDER BY timestamp DESC, cycle_number DESC LIMIT 500
          ) AS track ORDER BY timestamp, cycle_number`
@@ -222,7 +264,7 @@ export async function answerArchive(plan: ArchivePlan, route: "rules" | "llm"): 
   if (plan.operation === "deep") {
     const threshold = `$${values.push(plan.minPressure!)}`;
     return read(
-      `SELECT float_id, cycle_number, MIN(timestamp) AS timestamp, AVG(latitude) AS latitude,
+      `SELECT float_id, cycle_number, MIN(timestamp) AS timestamp, TO_CHAR(MIN(timestamp), 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cast_time, AVG(latitude) AS latitude,
               AVG(longitude) AS longitude, MAX(pressure) AS max_pressure, COUNT(*)::int AS measurement_count
        FROM ${archiveTable}${where("float_id IS NOT NULL", "cycle_number IS NOT NULL")}
        GROUP BY float_id, cycle_number HAVING MAX(pressure) > ${threshold}
@@ -241,7 +283,7 @@ export async function answerArchive(plan: ArchivePlan, route: "rules" | "llm"): 
        SELECT float_id, cycle_number, timestamp FROM ${archiveTable}${where("float_id IS NOT NULL", "cycle_number IS NOT NULL", `(${usable})`)}
        GROUP BY float_id, cycle_number, timestamp ORDER BY timestamp DESC, float_id, cycle_number LIMIT 3
      )
-     SELECT float_id, cycle_number, timestamp, latitude, longitude, pressure, ${measurements}
+     SELECT float_id, cycle_number, timestamp, ${exactCastTime}, latitude, longitude, pressure, ${measurements}
      FROM ${archiveTable} JOIN selected USING (float_id, cycle_number, timestamp)
      ${where(`(${usable})`).trimStart()}
      ORDER BY timestamp DESC, float_id, cycle_number, pressure LIMIT 4500`,

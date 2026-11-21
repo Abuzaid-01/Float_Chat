@@ -10,10 +10,12 @@ import type { Measure, ResultShape } from "@/lib/result-shape";
  * Series colours, assigned in this fixed order. Checked for colour-blind
  * separation and contrast against the chart surface (#071a2b).
  */
-export const SERIES_COLORS = ["#2a9db0", "#c98500", "#807cec", "#d75a8b"];
+export const SERIES_COLORS = ["#60c9df", "#fcb553", "#ae9af9", "#ef90bd", "#70d49f", "#ee9475"];
 const MAX_SERIES = SERIES_COLORS.length;
 
-type Series = { id: string; label: string; points: Array<{ x: number; y: number }> };
+type Series = { id: string; label: string; points: Array<{ x: number; y: number; pressure?: number }> };
+const PRESSURE_COLORS = ["#8de3e9", "#618af5", "#c38cec"];
+const pressureColor = (pressure: number) => PRESSURE_COLORS[pressure < 200 ? 0 : pressure < 1000 ? 1 : 2];
 
 function useWidth<T extends HTMLElement>() {
   const ref = useRef<T | null>(null);
@@ -82,6 +84,8 @@ type XYChartProps = {
   formatY: (value: number) => string;
   /** Depth profiles read top-down: zero at the top, hover picks a depth. */
   depthAxis?: boolean;
+  scatter?: boolean;
+  depthStep?: number;
   xTicks?: number[];
   label: string;
 };
@@ -105,7 +109,7 @@ function labelledMarkers(markers: DepthMarker[], sy: (depth: number) => number) 
 const CHART_HEIGHT = 300;
 
 /** Line chart with a snapping crosshair; one readout lists every series. */
-function XYChart({ series, markers = [], xTitle, yTitle, formatX, formatY, depthAxis = false, xTicks: givenXTicks, label }: XYChartProps) {
+function XYChart({ series, markers = [], xTitle, yTitle, formatX, formatY, depthAxis = false, scatter = false, depthStep, xTicks: givenXTicks, label }: XYChartProps) {
   const { ref, width } = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
 
@@ -113,7 +117,7 @@ function XYChart({ series, markers = [], xTitle, yTitle, formatX, formatY, depth
   const xs = all.map((point) => point.x);
   const ys = all.map((point) => point.y);
   const xTicks = givenXTicks ?? niceTicks(Math.min(...xs), Math.max(...xs), width < 480 ? 4 : 6);
-  const yTicks = niceTicks(depthAxis ? 0 : Math.min(...ys), Math.max(...ys), 5);
+  const yTicks = niceTicks(depthAxis ? Math.min(0, ...ys) : Math.min(...ys), Math.max(...ys), 5);
   const xMin = givenXTicks ? Math.min(...xs) : xTicks[0];
   const xMax = givenXTicks ? Math.max(...xs) : xTicks[xTicks.length - 1];
   const yMin = yTicks[0];
@@ -206,16 +210,24 @@ function XYChart({ series, markers = [], xTitle, yTitle, formatX, formatY, depth
                 </g>
               ))}
 
-            {series.map((entry, index) => (
+            {scatter ? all.map((point, index) => (
+              <circle key={index} cx={sx(point.x)} cy={sy(point.y)} r={3} fill={pressureColor(point.pressure ?? 0)} opacity={0.85}>
+                <title>{`Salinity ${formatX(point.x)} PSU · ${formatY(point.y)} °C · ${formatValue(point.pressure, 1)} dbar`}</title>
+              </circle>
+            )) : series.map((entry, index) => (
               <path
                 key={entry.id}
                 className="viz-line"
                 stroke={SERIES_COLORS[index]}
                 d={entry.points
-                  .map((point, i) => `${i ? "L" : "M"}${sx(point.x).toFixed(1)},${sy(point.y).toFixed(1)}`)
+                  .map((point, i) => `${i && (depthStep === undefined || point.y - entry.points[i - 1].y <= depthStep) ? "L" : "M"}${sx(point.x).toFixed(1)},${sy(point.y).toFixed(1)}`)
                   .join("")}
               />
             ))}
+
+            {depthStep !== undefined && series.flatMap((entry, index) => entry.points.map((point, pointIndex) => (
+              <circle key={`${entry.id}-${pointIndex}`} cx={sx(point.x)} cy={sy(point.y)} r={2.3} fill={SERIES_COLORS[index]} />
+            )))}
 
             {anchor &&
               (depthAxis ? (
@@ -227,7 +239,7 @@ function XYChart({ series, markers = [], xTitle, yTitle, formatX, formatY, depth
               <circle key={entry.id} className="viz-marker" cx={sx(point.x)} cy={sy(point.y)} r="4.5" fill={SERIES_COLORS[index]} />
             ))}
 
-            <rect
+            {!scatter && <rect
               x={MARGIN.left}
               y={MARGIN.top}
               width={innerWidth}
@@ -235,7 +247,7 @@ function XYChart({ series, markers = [], xTitle, yTitle, formatX, formatY, depth
               fill="transparent"
               onPointerMove={onMove}
               onPointerLeave={() => setHover(null)}
-            />
+            />}
           </svg>
 
           {anchor && (
@@ -312,8 +324,9 @@ function ProfileChart({
         series={series}
         markers={markers}
         depthAxis
+        depthStep={binned ? 100 : undefined}
         xTitle={`${measure.label}${unit}`}
-        yTitle={binned ? "Depth bin (dbar ≈ m)" : "Pressure (dbar ≈ m)"}
+        yTitle={binned ? "Pressure band start (dbar)" : "Pressure (dbar)"}
         formatX={(value) => formatValue(value, 2)}
         formatY={(value) => formatValue(value, 0)}
         label={`${measure.label} against pressure for ${shown.map((profile) => profile.label).join(", ")}. Values are in the table view.`}
@@ -466,4 +479,30 @@ export function ResultChart({ rows, shape, markers }: { rows: DataRow[]; shape: 
   if (shape.kind === "series") return <SeriesChart rows={rows} shape={shape} />;
   if (shape.kind === "figures") return <Figures row={rows[0]} />;
   return null;
+}
+
+export function TemperatureSalinityChart({ rows }: { rows: DataRow[] }) {
+  const points = rows.flatMap((row) => {
+    const x = toNumber(row.salinity);
+    const y = toNumber(row.temperature);
+    const pressure = toNumber(row.pressure);
+    return x !== null && y !== null && pressure !== null ? [{ x, y, pressure }] : [];
+  });
+  if (!points.length) return <p className="viz-empty">This cast has no paired temperature and salinity readings with QC flags 1–2.</p>;
+  return (
+    <div>
+      <div className="viz-head"><div><b>Temperature–salinity diagram</b><span>{formatValue(points.length)} paired readings, coloured by pressure</span></div></div>
+      <ul className="viz-legend">
+        {["Under 200 dbar", "200 to under 1,000 dbar", "1,000 dbar or more"].map((label, index) => (
+          <li key={label}><i style={{ background: PRESSURE_COLORS[index] }} />{label}</li>
+        ))}
+      </ul>
+      <XYChart
+        series={[{ id: "ts", label: "T–S readings", points }]}
+        scatter xTitle="Practical salinity (PSU)" yTitle="In-situ temperature (°C)"
+        formatX={(value) => formatValue(value, 2)} formatY={(value) => formatValue(value, 2)}
+        label="Temperature–salinity scatter plot coloured by pressure. Paired readings are available in the profile CSV."
+      />
+    </div>
+  );
 }

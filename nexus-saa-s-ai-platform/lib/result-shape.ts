@@ -4,7 +4,7 @@
  * figures, a time series — or just the table.
  */
 
-import type { DataRow } from "@/lib/api";
+import type { CastRef, DataRow } from "@/lib/api";
 import { parseTimestamp } from "@/lib/ocean";
 
 export type Measure = { key: string; label: string; unit: string };
@@ -27,6 +27,7 @@ const IDENTIFIER_COLUMNS = new Set([
   "sal_qc",
   "data_mode",
   "platform_type",
+  "cast_time",
 ]);
 
 const POSITION_COLUMNS = new Set(["latitude", "longitude"]);
@@ -170,28 +171,37 @@ export function buildProfiles(rows: DataRow[], measure: string, depthColumn = "p
     .map((profile) => ({ ...profile, points: profile.points.sort((a, b) => a.depth - b.depth) }));
 }
 
-export type MapPoint = { lat: number; lon: number; label: string; count: number };
+export type MapPoint = { id: string; lat: number; lon: number; label: string; count: number; region?: string; casts: CastRef[] };
 
-/** Collapse rows to their distinct positions (many depth samples share one). */
+export const castKey = (cast: CastRef) => `${cast.floatId}/${cast.cycle}/${cast.timestamp}`;
+
+/** Group coincident positions while retaining a reference to each distinct cast. */
 export function buildPositions(rows: DataRow[]): MapPoint[] {
   const positions = new Map<string, MapPoint>();
+  const seen = new Set<string>();
   for (const row of rows) {
     const lat = toNumber(row.latitude);
     const lon = toNumber(row.longitude);
     if (lat === null || lon === null || Math.abs(lat) > 90 || Math.abs(lon) > 180) continue;
-    const key = `${lat.toFixed(2)},${lon.toFixed(2)}`;
-    const existing = positions.get(key);
-    if (existing) existing.count += 1;
-    else {
-      positions.set(key, {
-        lat,
-        lon,
-        label:
-          row.float_id !== undefined && row.float_id !== null
-            ? `Float ${row.float_id}${row.cycle_number !== undefined && row.cycle_number !== null ? ` · cycle ${row.cycle_number}` : ""}`
-            : "Observation",
-        count: 1,
-      });
+    const region = typeof row.ocean_region === "string" ? row.ocean_region : undefined;
+    const key = `${lat.toFixed(4)},${lon.toFixed(4)}/${region ?? ""}`;
+    const floatId = row.float_id == null ? "" : String(row.float_id);
+    const cycle = toNumber(row.cycle_number);
+    const time = parseTimestamp(row.timestamp);
+    const timestamp = typeof row.cast_time === "string" ? row.cast_time : time?.toISOString();
+    let point = positions.get(key);
+    if (!point) {
+      const label = floatId ? `Float ${floatId}${cycle !== null ? ` · cycle ${cycle}` : ""}` : "Observation";
+      point = { id: key, lat, lon, label, count: 0, region, casts: [] };
+      positions.set(key, point);
+    }
+    point.count++;
+    if (timestamp && /^\d{4,10}$/.test(floatId) && cycle !== null && Number.isInteger(cycle) && cycle >= 0 && cycle <= 9999) {
+      const cast = { floatId, cycle, timestamp };
+      const reference = `${key}/${castKey(cast)}`;
+      if (seen.has(reference)) continue;
+      seen.add(reference);
+      point.casts.push(cast);
     }
   }
   return [...positions.values()];

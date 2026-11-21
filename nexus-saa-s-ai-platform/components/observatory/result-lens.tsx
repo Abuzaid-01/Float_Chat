@@ -1,17 +1,19 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { BarChart3, Check, Clipboard, Code2, Download, MapPinned, ScanSearch, Table2 } from "lucide-react";
-import type { ChatResponse, DataRow, ProfileAnalysis } from "@/lib/api";
+import { BarChart3, Check, Clipboard, Code2, Download, Layers, MapPinned, ScanSearch, Table2 } from "lucide-react";
+import type { ChatResponse, ProfileAnalysis } from "@/lib/api";
 import { GeoBounds, OCEAN_REGIONS, formatCount } from "@/lib/ocean";
-import { MapPoint, analyzeRows, buildPositions, formatValue, humanize, toNumber } from "@/lib/result-shape";
+import { analyzeRows, buildPositions, formatValue, humanize, toNumber } from "@/lib/result-shape";
 import { MapRegion, OceanMap } from "./ocean-map";
 import { DepthMarker, ResultChart } from "./result-charts";
+import { downloadRows } from "@/lib/result-download";
+import { ComparisonCoverage, ComparisonDepth } from "./comparison-evidence";
+import { ObservationExplorer } from "./observation-explorer";
 
-type View = "chart" | "map" | "table" | "sql";
+type View = "chart" | "depth" | "map" | "coverage" | "table" | "sql";
 
 const MAP_ASPECT = 2;
-const MAX_MAP_POINTS = 400;
 const TABLE_PAGE = 50;
 
 /** Frame an area with some sea room around it, at the map panel's aspect ratio. */
@@ -36,8 +38,6 @@ function extent(items: Array<{ latMin: number; latMax: number; lonMin: number; l
     lonMax: Math.max(...items.map((item) => item.lonMax)),
   };
 }
-
-const pointBounds = (point: MapPoint) => ({ latMin: point.lat, latMax: point.lat, lonMin: point.lon, lonMax: point.lon });
 
 const SQL_KEYWORDS =
   /\b(SELECT|DISTINCT|FROM|WHERE|GROUP BY|ORDER BY|HAVING|LIMIT|AND|OR|NOT|IN|IS|NULL|AS|BETWEEN|LIKE|ILIKE|ASC|DESC|COUNT|AVG|MIN|MAX|SUM|ROUND|CASE|WHEN|THEN|ELSE|END)\b/gi;
@@ -66,14 +66,6 @@ function tokenizeSql(sql: string) {
     if (cursor < part.length) tokens.push({ kind: "plain", text: part.slice(cursor) });
     return tokens;
   });
-}
-
-function toCsv(rows: DataRow[], columns: string[]) {
-  const cell = (value: unknown) => {
-    const text = value === null || value === undefined ? "" : String(value);
-    return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
-  };
-  return [columns.join(","), ...rows.map((row) => columns.map((column) => cell(row[column])).join(","))].join("\n");
 }
 
 const CHART_LABEL = { profile: "Profile", category: "Compare", series: "Trend", figures: "Figures", table: "" } as const;
@@ -195,10 +187,12 @@ export function ResultLens({ result }: { result: ChatResponse }) {
     }));
   }, [rows, shape.hasRegions]);
 
+  const comparison = result.comparison;
   const hasChart = shape.kind !== "table";
   const hasMap = positions.length > 0 || namedRegions.length > 0;
   const [view, setView] = useState<View>(() => {
     if (result.preferred_view === "map" && hasMap) return "map";
+    if (comparison?.depth_rows?.length) return "depth";
     if (hasChart) return "chart";
     if (positions.length || namedRegions.length) return "map";
     return rows.length ? "table" : "sql";
@@ -210,21 +204,15 @@ export function ResultLens({ result }: { result: ChatResponse }) {
 
   const total = result.result_count ?? rows.length;
   const tabs = [
-    hasChart && { key: "chart" as const, label: CHART_LABEL[shape.kind], icon: BarChart3 },
+    hasChart && { key: "chart" as const, label: comparison ? "Overview" : CHART_LABEL[shape.kind], icon: BarChart3 },
+    comparison && { key: "depth" as const, label: "By depth", icon: Layers },
     hasMap && { key: "map" as const, label: "Map", icon: MapPinned },
+    comparison && { key: "coverage" as const, label: "Coverage", icon: ScanSearch },
     rows.length > 0 && { key: "table" as const, label: "Table", icon: Table2 },
     result.sql && { key: "sql" as const, label: "SQL", icon: Code2 },
   ].filter(Boolean) as Array<{ key: View; label: string; icon: typeof Code2 }>;
 
   if (!tabs.length) return null;
-
-  function exportRows() {
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(new Blob([toCsv(rows, shape.columns)], { type: "text/csv" }));
-    link.download = "floatchat-query.csv";
-    link.click();
-    URL.revokeObjectURL(link.href);
-  }
 
   async function copySql() {
     try {
@@ -237,7 +225,6 @@ export function ResultLens({ result }: { result: ChatResponse }) {
   }
 
   const visibleRows = expanded ? rows : rows.slice(0, TABLE_PAGE);
-  const mapPoints = positions.slice(0, MAX_MAP_POINTS);
 
   return (
     <section className="result-lens" aria-label="Evidence for this answer">
@@ -264,7 +251,7 @@ export function ResultLens({ result }: { result: ChatResponse }) {
             <span>{result.execution_time.toFixed(1)} s{result.cached ? " · reused SQL" : ""}</span>
           )}
           {rows.length > 0 && (
-            <button type="button" className="icon-text-button" onClick={exportRows}>
+            <button type="button" className="icon-text-button" onClick={() => downloadRows(rows, "floatchat-query.csv")}>
               <Download size={13} /> CSV
             </button>
           )}
@@ -311,21 +298,20 @@ export function ResultLens({ result }: { result: ChatResponse }) {
         </div>
       )}
 
+      {view === "depth" && comparison && (
+        <div className="result-lens__panel">
+          {comparison.depth_rows
+            ? <ComparisonDepth rows={comparison.depth_rows} regions={rows.map((row) => String(row.ocean_region))} bandSize={comparison.band_size} />
+            : <p className="viz-empty">Depth evidence could not load for this query. Narrow the date or pressure range and run it again.</p>}
+        </div>
+      )}
+
+      {view === "coverage" && comparison && <div className="result-lens__panel"><ComparisonCoverage rows={rows} /></div>}
+
       {view === "map" && hasMap && (
         <div className="result-lens__panel result-lens__panel--map">
           {positions.length > 0 ? (
-            <>
-              <OceanMap
-                view={fitView(extent(mapPoints.map(pointBounds)))}
-                points={mapPoints}
-                track={track}
-                label={`Map of ${mapPoints.length} observation positions returned by the query.`}
-              />
-              <p className="result-lens__caption">
-                {positions.length.toLocaleString("en-US")} distinct {positions.length === 1 ? "position" : "positions"}
-                {positions.length > MAX_MAP_POINTS && `, first ${MAX_MAP_POINTS} drawn`} · {track ? "line connects recorded positions in time order" : "hover a point for details"}
-              </p>
-            </>
+            <ObservationExplorer points={positions} track={track} comparisonLimit={comparison?.map_limit_per_region} />
           ) : (
             <>
               <OceanMap
@@ -333,7 +319,7 @@ export function ResultLens({ result }: { result: ChatResponse }) {
                 regions={namedRegions}
                 label={`Map highlighting ${namedRegions.map((region) => region.name).join(" and ")}.`}
               />
-              <p className="result-lens__caption">Region boxes used by the database to classify each profile.</p>
+              <p className="result-lens__caption">This result includes region boundaries. Recorded cast positions are unavailable for this map.</p>
             </>
           )}
         </div>

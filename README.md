@@ -57,7 +57,10 @@ On Netlify, `netlify.toml` sets `NEXT_PUBLIC_API_MODE=netlify`. Set the existing
 read-only connection URL as the server-side `DATABASE_URL` in Netlify's Functions
 environment. The frontend calls its own `/api/v1/` routes for archive health,
 dashboard stats, region and float lookups, and chat with maps, profiles, and
-daily trends. Set the server-side `GROQ_API_KEY` in Netlify Functions to enable
+daily trends. Regional comparisons include recorded cast locations, coverage
+counts, and equally weighted cast means in shared 100 dbar pressure bands.
+The map opens individual casts with a pressure profile, a T–S diagram, and
+quality-screened CSV readings. Set the server-side `GROQ_API_KEY` in Netlify Functions to enable
 optional model-assisted interpretation for supported archive analyses. The
 model returns a validated plan; the API builds parameterized read-only SQL.
 Test

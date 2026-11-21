@@ -123,10 +123,42 @@ async function floatInfo(id: string) {
   };
 }
 
+async function floatCast(id: string, cycle: string, time: string | null) {
+  if (!/^\d{4,10}$/.test(id) || !/^\d{1,4}$/.test(cycle)) {
+    throw new RouteError(400, "Enter a valid float and cycle number.");
+  }
+  const timestamp = z.string().datetime().safeParse(time);
+  if (!timestamp.success) throw new RouteError(400, "Use the recorded UTC timestamp for this profile.");
+
+  const rows = await queryArchive(
+    `SELECT float_id, cycle_number, TO_CHAR(timestamp, 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS timestamp,
+            ocean_region, latitude, longitude, pressure,
+            CASE WHEN temp_qc IN (1, 2) THEN temperature END AS temperature,
+            CASE WHEN sal_qc IN (1, 2) THEN salinity END AS salinity,
+            temp_qc, sal_qc, COUNT(*) OVER ()::int AS total_levels
+     FROM ${archiveTable}
+     WHERE float_id = $1 AND cycle_number = $2 AND timestamp = ($3::timestamptz AT TIME ZONE 'UTC')
+     ORDER BY pressure NULLS LAST LIMIT 6000`,
+    [id, Number(cycle), timestamp.data],
+  );
+  const first = rows[0];
+  if (!first) throw new RouteError(404, "This float profile was not found in the archive.");
+  return {
+    latitude: numberOrNull(first.latitude),
+    longitude: numberOrNull(first.longitude),
+    region: first.ocean_region,
+    total_levels: first.total_levels,
+    readings: rows.map(({ total_levels: _total, ...reading }) => reading),
+  };
+}
+
 export async function GET(request: Request, { params }: RouteContext) {
   const path = (await params).resource ?? [];
   try {
-    if (path.length === 2 && path[0] === "floats") return Response.json(await floatInfo(path[1]));
+    if (path[0] === "floats" && path.length === 2) return Response.json(await floatInfo(path[1]));
+    if (path[0] === "floats" && path.length === 4 && path[2] === "cycles") {
+      return Response.json(await floatCast(path[1], path[3], new URL(request.url).searchParams.get("time")));
+    }
     if (path.length === 1) {
       switch (path[0]) {
         case "health": return health(request);

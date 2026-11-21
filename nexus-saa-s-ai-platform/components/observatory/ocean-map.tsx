@@ -20,6 +20,10 @@ type OceanMapProps = {
   selectedRegion?: string | null;
   onSelectRegion?: (name: string) => void;
   points?: MapPoint[];
+  colors?: Record<string, string>;
+  selectedPoint?: string;
+  onSelectPoint?: (point: MapPoint) => void;
+  onPan?: (lon: number, lat: number) => void;
   track?: { lat: number; lon: number }[];
   pin?: MapPin | null;
 };
@@ -55,13 +59,13 @@ function useLandPath() {
 }
 
 /** Eases the visible window toward `target` whenever it changes. */
-function useTweenedView(target: GeoBounds) {
+function useTweenedView(target: GeoBounds, animate: boolean) {
   const [view, setView] = useState(target);
   const current = useRef(target);
 
   useEffect(() => {
     const from = current.current;
-    if (prefersReducedMotion()) {
+    if (!animate || prefersReducedMotion()) {
       current.current = target;
       setView(target);
       return;
@@ -85,7 +89,7 @@ function useTweenedView(target: GeoBounds) {
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [target.lonMin, target.lonMax, target.latMin, target.latMax]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [target.lonMin, target.lonMax, target.latMin, target.latMax, animate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return view;
 }
@@ -105,10 +109,11 @@ const latLabel = (lat: number) => (lat === 0 ? "EQ" : `${Math.abs(lat)}°${lat >
 
 type Tip = { x: number; y: number; title: string; detail: string };
 
-export function OceanMap({ view: target, label, regions, selectedRegion, onSelectRegion, points, track, pin }: OceanMapProps) {
+export function OceanMap({ view: target, label, regions, selectedRegion, onSelectRegion, points, track, pin, colors, selectedPoint, onSelectPoint, onPan }: OceanMapProps) {
   const land = useLandPath();
-  const view = useTweenedView(target);
+  const view = useTweenedView(target, !onPan);
   const frame = useRef<HTMLDivElement>(null);
+  const drag = useRef<{ x: number; y: number } | null>(null);
   const [tip, setTip] = useState<Tip | null>(null);
 
   const width = view.lonMax - view.lonMin;
@@ -135,14 +140,27 @@ export function OceanMap({ view: target, label, regions, selectedRegion, onSelec
   return (
     <div
       ref={frame}
-      className="ocean-map"
+      className={onPan ? "ocean-map ocean-map--pan" : "ocean-map"}
       style={{ aspectRatio: `${target.lonMax - target.lonMin} / ${target.latMax - target.latMin}` }}
     >
       <svg
         viewBox={`${toX(view.lonMin)} ${toY(view.latMax)} ${width} ${height}`}
         preserveAspectRatio="xMidYMid slice"
-        role="img"
+        role={onSelectPoint ? "group" : "img"}
         aria-label={label}
+        onPointerDown={(event) => {
+          if (!onPan || event.button !== 0 || (event.target as Element).closest("[data-cast-marker]")) return;
+          drag.current = { x: event.clientX, y: event.clientY };
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }}
+        onPointerMove={(event) => {
+          const previous = drag.current;
+          if (!onPan || !previous) return;
+          const bounds = event.currentTarget.getBoundingClientRect();
+          onPan((previous.x - event.clientX) * width / bounds.width, (event.clientY - previous.y) * height / bounds.height);
+          drag.current = { x: event.clientX, y: event.clientY };
+        }}
+        onLostPointerCapture={() => { drag.current = null; }}
       >
         <g className="ocean-map__graticule">
           {lines.lons.map((lon) => (
@@ -231,21 +249,37 @@ export function OceanMap({ view: target, label, regions, selectedRegion, onSelec
         {points && (
           <g className="ocean-map__points">
             {points.map((point) => {
-              const detail = `${formatCoordinate(point.lat, point.lon)} · ${point.count.toLocaleString("en-US")} ${
-                point.count === 1 ? "row" : "rows"
-              }`;
+              const visits = point.casts.length;
+              const markerLabel = visits > 1 ? `${visits} casts at this location` : point.label;
+              const detail = [formatCoordinate(point.lat, point.lon), point.region].filter(Boolean).join(" · ");
+              const selectable = !!(onSelectPoint && visits);
+              const selected = selectedPoint === point.id;
+              const markColor = selected ? "var(--amber)" : point.region ? colors?.[point.region] : undefined;
+              const select = () => {
+                if (selectable) onSelectPoint?.(point);
+              };
               return (
                 <g
-                  key={`${point.lat},${point.lon}`}
+                  key={point.id}
                   tabIndex={0}
-                  aria-label={`${point.label}, ${detail}`}
-                  onPointerMove={(event) => showTip(event, point.label, detail)}
+                  data-cast-marker={selectable ? "" : undefined}
+                  role={selectable ? "button" : undefined}
+                  aria-pressed={selectable ? selected : undefined}
+                  aria-label={`${markerLabel}, ${detail}`}
+                  onClick={select}
+                  onKeyDown={(event) => {
+                    if (selectable && (event.key === "Enter" || event.key === " ")) {
+                      event.preventDefault();
+                      select();
+                    }
+                  }}
+                  onPointerMove={(event) => showTip(event, markerLabel, detail)}
                   onPointerLeave={() => setTip(null)}
-                  onFocus={(event) => showTip(event, point.label, detail)}
+                  onFocus={(event) => showTip(event, markerLabel, detail)}
                   onBlur={() => setTip(null)}
                 >
                   <circle className="ocean-map__hit" cx={toX(point.lon)} cy={toY(point.lat)} r={unit * 2.4} />
-                  <circle className="ocean-map__dot" cx={toX(point.lon)} cy={toY(point.lat)} r={unit * 0.85} />
+                  <circle className="ocean-map__dot" cx={toX(point.lon)} cy={toY(point.lat)} r={unit * (selected ? 1.2 : 0.76)} style={{ fill: markColor }} />
                 </g>
               );
             })}
