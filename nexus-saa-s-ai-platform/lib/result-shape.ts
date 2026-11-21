@@ -113,11 +113,11 @@ export function analyzeRows(rows: DataRow[]): ResultShape {
     }) ?? null;
 
   let kind: ResultKind = "table";
-  if (hasPressure && profileMeasures.length > 0 && rows.length >= 3) kind = "profile";
+  if (hasPressure && profileMeasures.length > 0 && rows.length >= 2) kind = "profile";
   else if (rows.length === 1 && columns.length > 0) kind = "figures";
   else if (categoryColumn && valueColumns.length > 0) kind = "category";
   // Rows that are positions (a trajectory, a list of floats) belong on the map, not a line chart.
-  else if (timeColumn && !hasPositions && valueColumns.some((column) => column !== "pressure") && rows.length >= 3)
+  else if (timeColumn && !hasPositions && valueColumns.some((column) => column !== "pressure") && rows.length >= 2)
     kind = "series";
 
   return {
@@ -178,7 +178,7 @@ export function buildPositions(rows: DataRow[]): MapPoint[] {
   for (const row of rows) {
     const lat = toNumber(row.latitude);
     const lon = toNumber(row.longitude);
-    if (lat === null || lon === null) continue;
+    if (lat === null || lon === null || Math.abs(lat) > 90 || Math.abs(lon) > 180) continue;
     const key = `${lat.toFixed(2)},${lon.toFixed(2)}`;
     const existing = positions.get(key);
     if (existing) existing.count += 1;

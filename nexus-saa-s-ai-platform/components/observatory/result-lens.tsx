@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { BarChart3, Check, Clipboard, Code2, Download, MapPinned, ScanSearch, Table2 } from "lucide-react";
 import type { ChatResponse, DataRow, ProfileAnalysis } from "@/lib/api";
 import { GeoBounds, OCEAN_REGIONS, formatCount } from "@/lib/ocean";
-import { MapPoint, analyzeRows, buildPositions, formatValue, humanize } from "@/lib/result-shape";
+import { MapPoint, analyzeRows, buildPositions, formatValue, humanize, toNumber } from "@/lib/result-shape";
 import { MapRegion, OceanMap } from "./ocean-map";
 import { DepthMarker, ResultChart } from "./result-charts";
 
@@ -174,7 +174,15 @@ function AnalysisPanel({ analysis }: { analysis: ProfileAnalysis }) {
 export function ResultLens({ result }: { result: ChatResponse }) {
   const rows = useMemo(() => result.data ?? [], [result.data]);
   const shape = useMemo(() => analyzeRows(rows), [rows]);
-  const positions = useMemo(() => (shape.hasPositions ? buildPositions(rows) : []), [rows, shape.hasPositions]);
+  const positions = useMemo(() => buildPositions(result.map_data ?? rows), [rows, result.map_data]);
+  const track = useMemo(() => {
+    if (!result.trajectory) return undefined;
+    return rows.flatMap((row) => {
+      const lat = toNumber(row.latitude);
+      const lon = toNumber(row.longitude);
+      return lat !== null && lon !== null && Math.abs(lat) <= 90 && Math.abs(lon) <= 180 ? [{ lat, lon }] : [];
+    });
+  }, [rows, result.trajectory]);
 
   // Results grouped by region have no coordinates, but the regions themselves can be mapped.
   const namedRegions = useMemo<MapRegion[]>(() => {
@@ -189,8 +197,12 @@ export function ResultLens({ result }: { result: ChatResponse }) {
 
   const hasChart = shape.kind !== "table";
   const hasMap = positions.length > 0 || namedRegions.length > 0;
-  // Trajectories and float lists have nothing to chart: open them on the map.
-  const [view, setView] = useState<View>(hasChart ? "chart" : positions.length > 1 ? "map" : rows.length ? "table" : "sql");
+  const [view, setView] = useState<View>(() => {
+    if (result.preferred_view === "map" && hasMap) return "map";
+    if (hasChart) return "chart";
+    if (positions.length || namedRegions.length) return "map";
+    return rows.length ? "table" : "sql";
+  });
   const markers = useMemo(() => depthMarkers(result.analysis), [result.analysis]);
   const matching = result.summary?.total_matching;
   const [expanded, setExpanded] = useState(false);
@@ -306,11 +318,12 @@ export function ResultLens({ result }: { result: ChatResponse }) {
               <OceanMap
                 view={fitView(extent(mapPoints.map(pointBounds)))}
                 points={mapPoints}
-                label={`Map of ${mapPoints.length} observation positions returned by the query. Coordinates are in the table view.`}
+                track={track}
+                label={`Map of ${mapPoints.length} observation positions returned by the query.`}
               />
               <p className="result-lens__caption">
                 {positions.length.toLocaleString("en-US")} distinct {positions.length === 1 ? "position" : "positions"}
-                {positions.length > MAX_MAP_POINTS && `, first ${MAX_MAP_POINTS} drawn`} · hover a point for details
+                {positions.length > MAX_MAP_POINTS && `, first ${MAX_MAP_POINTS} drawn`} · {track ? "line connects recorded positions in time order" : "hover a point for details"}
               </p>
             </>
           ) : (

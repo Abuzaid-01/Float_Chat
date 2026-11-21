@@ -109,7 +109,7 @@ export type ChatResponse = {
   /** Total SQL rows before the API applies its display limit. */
   result_count?: number;
   execution_time?: number;
-  /** "rules" when fixed rules built the SQL, "llm" when the language model wrote it. */
+  /** "rules" for deterministic interpretation, "llm" for model-assisted interpretation. */
   route?: string | null;
   /** One line saying how the question was understood. */
   interpretation?: string | null;
@@ -118,6 +118,10 @@ export type ChatResponse = {
   retrieval?: Array<{ float_id?: string | null; cycle_number?: number | null; timestamp?: string | null; summary: string; rank: number }>;
   cached?: boolean;
   error?: string | null;
+  retryable?: boolean;
+  map_data?: DataRow[];
+  preferred_view?: "map" | "chart";
+  trajectory?: boolean;
 };
 
 export type ChatTurn = { role: "user" | "assistant"; content: string };

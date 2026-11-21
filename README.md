@@ -56,7 +56,11 @@ The API integration tests exercise the real query processor with a disposable SQ
 On Netlify, `netlify.toml` sets `NEXT_PUBLIC_API_MODE=netlify`. Set the existing Neon's
 read-only connection URL as the server-side `DATABASE_URL` in Netlify's Functions
 environment. The frontend calls its own `/api/v1/` routes for archive health,
-dashboard stats, region and float lookups, and supported structured chat. Test
+dashboard stats, region and float lookups, and chat with maps, profiles, and
+daily trends. Set the server-side `GROQ_API_KEY` in Netlify Functions to enable
+optional model-assisted interpretation for supported archive analyses. The
+model returns a validated plan; the API builds parameterized read-only SQL.
+Test
 `/api/v1/health?deep=true` after deployment. Optionally keep the existing HTTPS
 `NEXT_PUBLIC_API_BASE_URL` or set `FLOATCHAT_LEGACY_API_URL` server-side for chat
 questions that need the Python pipeline.

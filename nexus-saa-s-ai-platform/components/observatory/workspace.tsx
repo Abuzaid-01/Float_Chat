@@ -198,7 +198,7 @@ export const Workspace = forwardRef<WorkspaceHandle, WorkspaceProps>(function Wo
             ? result.response || "The API returned an empty answer."
             : result.response || "The archive could not complete this query.",
           result,
-          failedQuestion: result.success ? undefined : question,
+          failedQuestion: result.success || result.retryable === false ? undefined : question,
         },
       ]);
       // Only data queries leave a full trail (retrieval, SQL, rows) to replay.
@@ -330,8 +330,8 @@ export const Workspace = forwardRef<WorkspaceHandle, WorkspaceProps>(function Wo
                         <p>{message.text}</p>
                       )}
 
-                      {message.result && !message.result.success && (
-                        <div className="query-error">{briefError(message.result.error || message.result.response)}</div>
+                      {message.result?.error && !message.result.success && message.result.error !== message.text && (
+                        <div className="query-error">{briefError(message.result.error)}</div>
                       )}
                       {message.result && (message.result.data?.length || message.result.sql) ? (
                         <ResultLens result={message.result} />

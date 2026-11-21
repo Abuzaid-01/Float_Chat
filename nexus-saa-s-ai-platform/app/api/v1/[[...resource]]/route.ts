@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { BackendHealth, ChatResponse, DatabaseStats, Suggestion } from "@/lib/api";
-import { answerStructured } from "@/lib/archive-chat";
+import { answerArchive } from "@/lib/archive-chat";
+import { answerConversation, interpretArchiveQuestion, interpretWithGroq } from "@/lib/archive-intent";
 import { archiveTable, metricColumns, numberOrNull, profileCount, queryArchive, timestampOrNull } from "@/lib/archive-db";
 
 export const runtime = "nodejs";
@@ -10,7 +11,9 @@ type RouteContext = { params: Promise<{ resource?: string[] }> };
 const suggestions: Suggestion[] = [
   { text: "How many floats are there?", category: "statistics" },
   { text: "What is the date range of the dataset?", category: "statistics" },
-  { text: "Show temperature in Arabian Sea", category: "geographic" },
+  { text: "Map the float locations in the Arabian Sea", category: "geographic" },
+  { text: "How does temperature change with depth in the Bay of Bengal?", category: "depth" },
+  { text: "Show daily temperature in the Arabian Sea", category: "statistics" },
   { text: "Compare Arabian Sea and Bay of Bengal", category: "comparison" },
   { text: "Show profiles deeper than 1000 dbar", category: "depth" },
 ];
@@ -169,12 +172,17 @@ export async function POST(request: Request, { params }: RouteContext) {
   if (!parsed.success) return failure(new RouteError(422, "Enter a question of 1 to 1,000 characters."));
 
   try {
-    const answer = await answerStructured(parsed.data.message);
-    if (answer) return Response.json(answer);
+    const { message, conversation_history: history } = parsed.data;
+    const conversational = answerConversation(message);
+    if (conversational) return Response.json(conversational);
+    const plan = interpretArchiveQuestion(message, history);
+    if (plan) return Response.json(await answerArchive(plan, "rules"));
+    const modelPlan = await interpretWithGroq(message, history);
+    if (modelPlan) return Response.json(await answerArchive(modelPlan, "llm"));
     const legacy = await tryLegacyChat(request, parsed.data);
     if (legacy) return legacy;
-    const response = "This question needs the free-form backend, which is unavailable. Try an archive count, a regional comparison, or a question from the suggestions.";
-    return Response.json({ success: false, response });
+    const response = "I couldn’t turn that into an archive query. Try naming the region and the result you want, such as **“Show daily temperature in the Arabian Sea”** or **“Compare the Arabian Sea and Bay of Bengal.”**";
+    return Response.json({ success: false, response, retryable: false });
   } catch (error) {
     return failure(error);
   }

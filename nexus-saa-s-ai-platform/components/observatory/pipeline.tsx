@@ -97,7 +97,7 @@ export function Pipeline({ telemetry, stats, lastQuery }: PipelineProps) {
       icon: Radar,
       title: "Retrieve",
       body: USE_NETLIFY_API
-        ? "Structured questions query Neon directly. Free-form retrieval is handled by the Python API when available."
+        ? "Supported questions query Neon directly. The Python API provides profile-summary retrieval when configured and available."
         : "For free-form questions, FAISS and BM25 retrieve relevant profile summaries to guide SQL. Structured questions use the parsed filters directly.",
       label: "vector search",
       artifact: (
@@ -113,7 +113,7 @@ export function Pipeline({ telemetry, stats, lastQuery }: PipelineProps) {
       body: USE_NETLIFY_API
         ? "Supported counts, regional comparisons, and archive lookups become parameterized SQL. Queries run in a read-only PostgreSQL transaction."
         : "Questions the rules fully understand — regions, floats, depths, dates, counts, comparisons — become SQL without a model. Anything else goes to the language model. Archive queries run in a read-only PostgreSQL transaction.",
-      label: route === "llm" ? "sql · written by the language model" : route === "rules" ? "sql · built by rules" : "sql",
+      label: route === "llm" ? "sql · model-assisted" : route === "rules" ? "sql · built by rules" : "sql",
       artifact: sql ? <code>{clip(sql.replace(/\s+/g, " "), 230)}</code> : <span>SQL appears after an archive query.</span>,
     },
     {

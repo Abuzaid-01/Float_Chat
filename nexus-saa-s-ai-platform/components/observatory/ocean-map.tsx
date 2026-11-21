@@ -20,6 +20,7 @@ type OceanMapProps = {
   selectedRegion?: string | null;
   onSelectRegion?: (name: string) => void;
   points?: MapPoint[];
+  track?: { lat: number; lon: number }[];
   pin?: MapPin | null;
 };
 
@@ -104,7 +105,7 @@ const latLabel = (lat: number) => (lat === 0 ? "EQ" : `${Math.abs(lat)}°${lat >
 
 type Tip = { x: number; y: number; title: string; detail: string };
 
-export function OceanMap({ view: target, label, regions, selectedRegion, onSelectRegion, points, pin }: OceanMapProps) {
+export function OceanMap({ view: target, label, regions, selectedRegion, onSelectRegion, points, track, pin }: OceanMapProps) {
   const land = useLandPath();
   const view = useTweenedView(target);
   const frame = useRef<HTMLDivElement>(null);
@@ -213,6 +214,19 @@ export function OceanMap({ view: target, label, regions, selectedRegion, onSelec
             </g>
           );
         })}
+
+        {track && track.length > 1 && (
+          <path
+            aria-hidden="true"
+            d={track.map(({ lat, lon }, index) =>
+              `${index === 0 || Math.abs(lon - track[index - 1].lon) > 180 ? "M" : "L"} ${toX(lon)} ${toY(lat)}`,
+            ).join(" ")}
+            fill="none"
+            stroke="var(--accent, #67e8f9)"
+            strokeWidth={unit * 0.35}
+            strokeOpacity={0.85}
+          />
+        )}
 
         {points && (
           <g className="ocean-map__points">
